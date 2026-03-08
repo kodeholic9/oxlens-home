@@ -24,18 +24,18 @@ sfu-bench --server <IP> --ws-port <PORT> --udp-port <PORT> [OPTIONS]
 
 ### 옵션
 
-| 옵션 | 기본값 | 설명 |
-|------|--------|------|
-| `--server` | 127.0.0.1 | SFU 서버 IP |
-| `--ws-port` | 19741 | WebSocket 시그널링 포트 |
-| `--udp-port` | 19740 | UDP 미디어 포트 |
-| `--publishers` | 1 | Publisher 수 (현재 1 고정) |
-| `--subscribers` | 0 | Subscriber 수 (0이면 publisher만 테스트) |
-| `--duration` | 30 | 테스트 시간 (초) |
-| `--fps` | 30 | 초당 RTP 패킷 전송 횟수 |
-| `--pkt-size` | 1200 | RTP 패킷 크기 (bytes) |
-| `--room` | bench | 벤치마크 방 이름 |
-| `--label` | baseline | 리포트 라벨 (before/after 비교용) |
+| 옵션            | 기본값    | 설명                                     |
+| --------------- | --------- | ---------------------------------------- |
+| `--server`      | 127.0.0.1 | SFU 서버 IP                              |
+| `--ws-port`     | 19741     | WebSocket 시그널링 포트                  |
+| `--udp-port`    | 19740     | UDP 미디어 포트                          |
+| `--publishers`  | 1         | Publisher 수 (현재 1 고정)               |
+| `--subscribers` | 0         | Subscriber 수 (0이면 publisher만 테스트) |
+| `--duration`    | 30        | 테스트 시간 (초)                         |
+| `--fps`         | 30        | 초당 RTP 패킷 전송 횟수                  |
+| `--pkt-size`    | 1200      | RTP 패킷 크기 (bytes)                    |
+| `--room`        | bench     | 벤치마크 방 이름                         |
+| `--label`       | baseline  | 리포트 라벨 (before/after 비교용)        |
 
 ### 동작 흐름
 
@@ -118,14 +118,14 @@ sfu-bench --server 192.168.0.10 --ws-port 1974 --udp-port 19740 \
 
 ## 측정 지표
 
-| 지표 | 설명 |
-|------|------|
-| tx_pps | Publisher 초당 전송 패킷 수 |
-| tx_throughput | Publisher 전송 대역폭 (Mbps) |
-| rx_total | Subscriber 전체 수신 패킷 (= tx × fan-out 이면 정상) |
-| rx_pps | Subscriber 전체 초당 수신 패킷 |
-| lost | seq gap 기반 손실 감지 |
-| loss_rate | 손실률 (%) |
+| 지표                | 설명                                                   |
+| ------------------- | ------------------------------------------------------ |
+| tx_pps              | Publisher 초당 전송 패킷 수                            |
+| tx_throughput       | Publisher 전송 대역폭 (Mbps)                           |
+| rx_total            | Subscriber 전체 수신 패킷 (= tx × fan-out 이면 정상)   |
+| rx_pps              | Subscriber 전체 초당 수신 패킷                         |
+| lost                | seq gap 기반 손실 감지                                 |
+| loss_rate           | 손실률 (%)                                             |
 | latency avg/p95/max | RTP payload에 삽입한 send timestamp 기반 E2E 지연 (µs) |
 
 ## Conference 모드 (회의실 시뮬레이션)
@@ -168,13 +168,13 @@ sfu-bench --mode conference --participants 20 --duration 60 --fps 30 \
 
 ### Fan-out vs Conference 차이
 
-| | Fan-out | Conference |
-|---|---|---|
-| 구조 | 1 pub → N sub | N pub+sub |
-| 입력 | 30 pps | N×30 pps |
-| 출력 | N×30 pps | N×(N-1)×30 pps |
-| decrypt | 1회/프레임 | N회/프레임 |
-| encrypt | N회/프레임 | N×(N-1)회/프레임 |
+|         | Fan-out       | Conference       |
+| ------- | ------------- | ---------------- |
+| 구조    | 1 pub → N sub | N pub+sub        |
+| 입력    | 30 pps        | N×30 pps         |
+| 출력    | N×30 pps      | N×(N-1)×30 pps   |
+| decrypt | 1회/프레임    | N회/프레임       |
+| encrypt | N회/프레임    | N×(N-1)회/프레임 |
 
 ## TWCC 전후 비교 시나리오
 

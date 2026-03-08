@@ -1,4 +1,4 @@
-# Insight Lens
+# OxLENS HOME
 
 WebRTC 기반 실시간 미디어 시스템 프론트엔드 (oxlens-sfu-server SFU 클라이언트 SDK + UI).
 
