@@ -1,0 +1,15 @@
+# Rust build artifacts
+livechat-bench/target/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env

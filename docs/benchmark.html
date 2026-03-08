@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="ko">
+<!--
+  @author: kodeholic (powered by Claude)
+  @description: 0xLENS Benchmark Report — Fan-out Performance on Raspberry Pi
+-->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>0xLENS — Benchmark Report (Fan-out + Conference)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Pretendard', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        brand: { rust: '#E45B25', cyan: '#00F0FF', dark: '#0B0F19', surface: '#151B2B' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #0B0F19; color: #E2E8F0; }
+        .bg-grid {
+            background-size: 40px 40px;
+            background-image: linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+                              linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
+        }
+        .text-gradient { background: linear-gradient(to right, #E45B25, #FF8A50); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #0B0F19; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        .word-keep-all { word-break: keep-all; }
+        /* bar chart */
+        .bar { transition: width 1.2s cubic-bezier(0.22, 1, 0.36, 1); }
+        .bar-enter { width: 0 !important; }
+    </style>
+</head>
+<body class="bg-grid min-h-screen flex flex-col font-sans antialiased">
+
+    <!-- GNB (compact) -->
+    <header class="fixed w-full top-0 z-50 bg-brand-dark/80 backdrop-blur-md border-b border-white/10">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex justify-between items-center">
+            <a href="../index.html" class="flex items-baseline shrink-0">
+                <span class="font-mono text-2xl font-extrabold tracking-tight">
+                    <span class="text-brand-rust">0x</span><span class="text-white">LENS</span>
+                </span>
+                <span class="ml-3 text-xs font-mono text-gray-500">/ docs / benchmark</span>
+            </a>
+            <nav class="hidden md:flex items-center space-x-6 text-sm font-mono text-gray-400">
+                <a href="../index.html" class="hover:text-white transition">Home</a>
+                <a href="./telemetry.html" class="hover:text-white transition">Telemetry</a>
+                <a href="#" class="text-brand-rust">Benchmark</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="flex-1 mt-16">
+
+        <!-- Hero -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pt-12 sm:pt-20 pb-12">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs font-mono text-brand-cyan mb-6">
+                <span class="w-2 h-2 rounded-full bg-green-400"></span>
+                2026-03-07 · Raspberry Pi 4B · light-livechat v0.3.4~v0.3.7
+            </div>
+            <h1 class="text-3xl sm:text-5xl font-extrabold text-white leading-tight mb-4 tracking-tight">
+                Fan-out <span class="text-gradient">499</span>,<br>
+                Loss <span class="text-gradient">0.002%</span>.
+            </h1>
+            <p class="text-gray-400 text-base sm:text-lg leading-relaxed max-w-2xl word-keep-all">
+                라즈베리파이 4B 한 대에서 1인 Publisher → 499명 Subscriber 동시 릴레이.
+                실제 DTLS/SRTP 암호화를 포함한 전체 파이프라인에서 측정한 결과입니다.
+            </p>
+        </section>
+
+        <!-- 핵심 수치 4-Grid -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="bg-brand-surface border border-brand-rust/30 rounded-xl p-5 sm:p-6 text-center">
+                    <div class="text-3xl sm:text-4xl font-mono font-extrabold text-brand-rust">499</div>
+                    <div class="text-xs sm:text-sm text-gray-400 mt-1">Fan-out</div>
+                </div>
+                <div class="bg-brand-surface border border-green-500/30 rounded-xl p-5 sm:p-6 text-center">
+                    <div class="text-3xl sm:text-4xl font-mono font-extrabold text-green-400">0.002<span class="text-lg">%</span></div>
+                    <div class="text-xs sm:text-sm text-gray-400 mt-1">Packet Loss</div>
+                </div>
+                <div class="bg-brand-surface border border-brand-cyan/30 rounded-xl p-5 sm:p-6 text-center">
+                    <div class="text-3xl sm:text-4xl font-mono font-extrabold text-brand-cyan">14.8<span class="text-lg">ms</span></div>
+                    <div class="text-xs sm:text-sm text-gray-400 mt-1">Avg Latency</div>
+                </div>
+                <div class="bg-brand-surface border border-yellow-500/30 rounded-xl p-5 sm:p-6 text-center">
+                    <div class="text-3xl sm:text-4xl font-mono font-extrabold text-yellow-400">69<span class="text-lg">%</span></div>
+                    <div class="text-xs sm:text-sm text-gray-400 mt-1">RPi CPU</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 테스트 환경 -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+            <h2 class="text-xl sm:text-2xl font-bold mb-6 font-mono text-white">Test Environment</h2>
+            <div class="bg-brand-surface border border-white/5 rounded-xl p-6 font-mono text-sm leading-relaxed overflow-x-auto">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-gray-300">
+                    <div><span class="text-gray-500">server:</span> Raspberry Pi 4B (4-core ARM Cortex-A72 @ 1.5GHz, 4GB RAM)</div>
+                    <div><span class="text-gray-500">server_sw:</span> light-livechat v0.3.4 (Rust + Tokio + Axum)</div>
+                    <div><span class="text-gray-500">bench:</span> sfu-bench v0.1.0 (Windows PC, Rust)</div>
+                    <div><span class="text-gray-500">network:</span> LAN, Gigabit Ethernet (wired)</div>
+                    <div><span class="text-gray-500">pipeline:</span> WS Signaling → STUN → DTLS → SRTP (full encryption)</div>
+                    <div><span class="text-gray-500">rtp:</span> 30fps × 1200B (VP8-like), single video track</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 결과 테이블 -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+            <h2 class="text-xl sm:text-2xl font-bold mb-6 font-mono text-white">Results</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm font-mono border-collapse">
+                    <thead>
+                        <tr class="border-b border-white/10 text-gray-400 text-left">
+                            <th class="py-3 pr-4">Label</th>
+                            <th class="py-3 pr-4 text-right">Fan-out</th>
+                            <th class="py-3 pr-4 text-right">rx pps</th>
+                            <th class="py-3 pr-4 text-right">Mbps</th>
+                            <th class="py-3 pr-4 text-right">Lost</th>
+                            <th class="py-3 pr-4 text-right">Loss%</th>
+                            <th class="py-3 pr-4 text-right">Avg (ms)</th>
+                            <th class="py-3 pr-4 text-right">P95 (ms)</th>
+                            <th class="py-3 pr-4 text-right">CPU%</th>
+                            <th class="py-3 text-center">Judge</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-300" id="resultBody"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Latency 차트 -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+            <h2 class="text-xl sm:text-2xl font-bold mb-6 font-mono text-white">Latency Scaling</h2>
+            <p class="text-gray-400 text-sm mb-6 word-keep-all">Fan-out이 500배 증가해도 평균 latency는 4배만 증가합니다. Sub-linear 특성.</p>
+            <div class="space-y-3" id="latencyBars"></div>
+            <div class="mt-4 flex items-center gap-6 text-xs font-mono text-gray-500">
+                <span class="flex items-center gap-2"><span class="w-3 h-3 rounded bg-brand-rust inline-block"></span> Avg latency</span>
+                <span class="flex items-center gap-2"><span class="w-3 h-3 rounded bg-brand-cyan/40 inline-block"></span> P95 latency</span>
+            </div>
+        </section>
+
+        <!-- CPU 차트 -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+            <h2 class="text-xl sm:text-2xl font-bold mb-6 font-mono text-white">CPU Scaling</h2>
+            <p class="text-gray-400 text-sm mb-6 word-keep-all">Subscriber당 CPU 비용 0.14~0.23%. SRTP encrypt(AES-128-CM)가 지배적 비용이며 완벽히 선형.</p>
+            <div class="space-y-3" id="cpuBars"></div>
+        </section>
+
+        <!-- 분석 섹션 -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+            <h2 class="text-xl sm:text-2xl font-bold mb-8 font-mono text-white">Analysis</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="bg-brand-surface border border-white/5 rounded-xl p-6">
+                    <h3 class="font-mono text-brand-rust font-bold mb-3">Throughput</h3>
+                    <p class="text-gray-400 text-sm leading-relaxed word-keep-all">
+                        Fan-out 499에서 <b class="text-white">15,000 pps, 145 Mbps</b> 처리.
+                        GbE 대역폭(1 Gbps) 대비 14.5% 사용으로 NIC 병목 아님.
+                        rx_total 패킷 수가 tx × fan-out과 정확히 일치 (오차 &lt; 0.01%).
+                    </p>
+                </div>
+                <div class="bg-brand-surface border border-white/5 rounded-xl p-6">
+                    <h3 class="font-mono text-green-400 font-bold mb-3">Packet Loss</h3>
+                    <p class="text-gray-400 text-sm leading-relaxed word-keep-all">
+                        전체 13회 테스트 중 loss 발생 3회. 모두 subscriber당 1패킷 단발성 —
+                        burst loss 없음. Fan-out 499에서도 <b class="text-white">15/898,576 = 0.002%</b>.
+                        서버 CPU 포화가 아닌 네트워크 계층 일시적 경합.
+                    </p>
+                </div>
+                <div class="bg-brand-surface border border-white/5 rounded-xl p-6">
+                    <h3 class="font-mono text-brand-cyan font-bold mb-3">Subscriber Fairness</h3>
+                    <p class="text-gray-400 text-sm leading-relaxed word-keep-all">
+                        Fan-out 루프가 순차적으로 499회 encrypt + send_to를 수행하므로
+                        앞순번(~5ms)과 뒷순번(~25ms) 사이 ~20ms 편차 발생.
+                        실시간 통화 기준(150ms) 대비 전 subscriber가 충분히 낮음.
+                    </p>
+                </div>
+                <div class="bg-brand-surface border border-white/5 rounded-xl p-6">
+                    <h3 class="font-mono text-yellow-400 font-bold mb-3">Memory</h3>
+                    <p class="text-gray-400 text-sm leading-relaxed word-keep-all">
+                        499 세션에 <b class="text-white">45MB RSS</b> — 세션당 ~90KB.
+                        GC 없는 Rust 특성. SRTP context + RTP cache + WS 버퍼 포함.
+                        RPi 4GB RAM 기준 이론적 최대 ~40,000 세션 (메모리만 고려 시).
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 아키텍처 기여 요인 -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+            <h2 class="text-xl sm:text-2xl font-bold mb-6 font-mono text-white">Why This Fast</h2>
+            <div class="bg-brand-surface border border-white/5 rounded-xl p-6 font-mono text-sm text-gray-400 leading-relaxed space-y-3">
+                <div><span class="text-brand-rust font-bold">Rust + Tokio</span> — GC 없음, async/await 비동기 I/O, zero-cost abstraction</div>
+                <div><span class="text-brand-rust font-bold">Single UDP Socket</span> — 소켓 관리 오버헤드 없음, 커널 버퍼 1개만 사용</div>
+                <div><span class="text-brand-rust font-bold">O(1) Lookup</span> — DashMap 3중 인덱스 (user_id, ufrag, addr) fan-out 루프 내 조회 비용 최소화</div>
+                <div><span class="text-brand-rust font-bold">SRTP Only Cost</span> — hot-path에서 AES-128-CM encrypt만 실행. 나머지는 async spawn</div>
+                <div><span class="text-brand-rust font-bold">Ring Buffer Cache</span> — NACK/RTX 재전송용 RTP 캐시가 fan-out에 추가 메모리 부담 없음</div>
+            </div>
+        </section>
+
+        <!-- 제약 및 다음 단계 (fan-out) -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+            <h2 class="text-xl sm:text-2xl font-bold mb-6 font-mono text-white">Fan-out Limitations</h2>
+            <div class="bg-brand-surface border border-white/5 rounded-xl p-6">
+                <p class="text-gray-400 text-sm leading-relaxed word-keep-all">
+                    본 테스트는 <b class="text-white">1 pub → N sub</b> (단일 스트림 fan-out)만 측정.
+                    실제 N인 화상회의에서는 N pub × (N-1) sub = N² 스트림으로
+                    서버 부하 구조가 근본적으로 다릅니다. 아래 Conference 벤치마크에서 실제 회의실 시나리오를 측정했습니다.
+                </p>
+            </div>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- CONFERENCE BENCHMARK -->
+        <!-- ========================================== -->
+
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-12 pt-8 border-t border-white/10">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-cyan/10 border border-brand-cyan/20 text-xs font-mono text-brand-cyan mb-6">
+                <span class="w-2 h-2 rounded-full bg-brand-cyan"></span>
+                Conference Mode — All Publish, All Subscribe
+            </div>
+            <h2 class="text-3xl sm:text-4xl font-extrabold text-white leading-tight mb-4 tracking-tight">
+                <span class="text-gradient">30</span>인 회의,
+                Loss <span class="text-gradient">0.000%</span>.
+            </h2>
+            <p class="text-gray-400 text-base sm:text-lg leading-relaxed max-w-2xl word-keep-all">
+                N명이 모두 publish + subscribe를 동시 수행하는 실제 회의실 시나리오.
+                3단계 워커 파이프라인 최적화로 30인 loss 9.6% → <b class="text-green-400">0.000%</b>.
+            </p>
+        </section>
+
+        <!-- Conference 핵심 4수치 -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="bg-brand-surface border border-brand-cyan/30 rounded-xl p-5 sm:p-6 text-center">
+                    <div class="text-3xl sm:text-4xl font-mono font-extrabold text-brand-cyan">30</div>
+                    <div class="text-xs sm:text-sm text-gray-400 mt-1">Participants</div>
+                </div>
+                <div class="bg-brand-surface border border-green-500/30 rounded-xl p-5 sm:p-6 text-center">
+                    <div class="text-3xl sm:text-4xl font-mono font-extrabold text-green-400">0<span class="text-lg">.000%</span></div>
+                    <div class="text-xs sm:text-sm text-gray-400 mt-1">Packet Loss</div>
+                </div>
+                <div class="bg-brand-surface border border-brand-cyan/30 rounded-xl p-5 sm:p-6 text-center">
+                    <div class="text-3xl sm:text-4xl font-mono font-extrabold text-brand-cyan">15.5<span class="text-lg">ms</span></div>
+                    <div class="text-xs sm:text-sm text-gray-400 mt-1">Avg Latency</div>
+                </div>
+                <div class="bg-brand-surface border border-yellow-500/30 rounded-xl p-5 sm:p-6 text-center">
+                    <div class="text-3xl sm:text-4xl font-mono font-extrabold text-yellow-400">138<span class="text-lg">%</span></div>
+                    <div class="text-xs sm:text-sm text-gray-400 mt-1">RPi 4-Core</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Conference 결과 테이블 -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+            <h2 class="text-xl sm:text-2xl font-bold mb-6 font-mono text-white">Conference Results</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm font-mono border-collapse">
+                    <thead>
+                        <tr class="border-b border-white/10 text-gray-400 text-left">
+                            <th class="py-3 pr-4">Label</th>
+                            <th class="py-3 pr-4 text-right">N</th>
+                            <th class="py-3 pr-4 text-right">Streams</th>
+                            <th class="py-3 pr-4 text-right">In pps</th>
+                            <th class="py-3 pr-4 text-right">Out pps</th>
+                            <th class="py-3 pr-4 text-right">Lost</th>
+                            <th class="py-3 pr-4 text-right">Loss%</th>
+                            <th class="py-3 pr-4 text-right">Avg (ms)</th>
+                            <th class="py-3 pr-4 text-right">P95 (ms)</th>
+                            <th class="py-3 pr-4 text-right">CPU%</th>
+                            <th class="py-3 text-center">Judge</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-300" id="confBody"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Conference CPU 차트 -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+            <h2 class="text-xl sm:text-2xl font-bold mb-6 font-mono text-white">Conference CPU Scaling</h2>
+            <p class="text-gray-400 text-sm mb-6 word-keep-all">N² 스트림 증가에도 CPU는 선형 증가. 30인에서 단일 코어 포화로 붕괴.</p>
+            <div class="space-y-3" id="confCpuBars"></div>
+        </section>
+
+        <!-- Conference 분석 -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+            <h2 class="text-xl sm:text-2xl font-bold mb-8 font-mono text-white">Conference Analysis</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="bg-brand-surface border border-white/5 rounded-xl p-6">
+                    <h3 class="font-mono text-brand-cyan font-bold mb-3">N² Scaling</h3>
+                    <p class="text-gray-400 text-sm leading-relaxed word-keep-all">
+                        5→25인: CPU가 스트림 수에 비례하여 선형 증가.
+                        20인(380 스트림)에서 <b class="text-white">CPU 52%</b> — 설계 목표 규모에서 충분한 여유.
+                        25인(600 스트림)에서 CPU 80%로 한계 접근.
+                    </p>
+                </div>
+                <div class="bg-brand-surface border border-red-500/20 rounded-xl p-6">
+                    <h3 class="font-mono text-red-400 font-bold mb-3">30인 Cliff</h3>
+                    <p class="text-gray-400 text-sm leading-relaxed word-keep-all">
+                        30인에서 <b class="text-white">loss 9.6%, avg 67ms</b>로 급락.
+                        원인: UDP hot loop가 단일 async task → Cpu0 한 코어에 91.6% 집중.
+                        나머지 3코어는 유휴. fan-out 루프 병렬화로 개선 가능.
+                    </p>
+                </div>
+                <div class="bg-brand-surface border border-white/5 rounded-xl p-6">
+                    <h3 class="font-mono text-green-400 font-bold mb-3">Fairness</h3>
+                    <p class="text-gray-400 text-sm leading-relaxed word-keep-all">
+                        모든 PASS 라운드에서 참가자 간 latency 편차 <b class="text-white">< 1.2ms</b>.
+                        N이 증가해도 공평성 유지 — fan-out 루프 순서 편차가
+                        참가자 수에 의해 평균화.
+                    </p>
+                </div>
+                <div class="bg-brand-surface border border-white/5 rounded-xl p-6">
+                    <h3 class="font-mono text-yellow-400 font-bold mb-3">Recommended</h3>
+                    <p class="text-gray-400 text-sm leading-relaxed word-keep-all">
+                        <b class="text-white">20인 이하</b>: 라즈베리파이 권장 (CPU 52% 여유).<br>
+                        <b class="text-white">25인</b>: 한계 접근, 모니터링 필요.<br>
+                        <b class="text-white">30인+</b>: x86 서버 또는 코어 분산 최적화 필요.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 다음 단계 -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-20">
+            <h2 class="text-xl sm:text-2xl font-bold mb-6 font-mono text-white">Next Steps</h2>
+            <div class="bg-brand-surface border border-brand-cyan/20 rounded-xl p-6">
+                <p class="text-gray-400 text-sm leading-relaxed word-keep-all">
+                    Fan-out 루프 병렬화 (멀티코어 활용 → 30인+ 가능성),
+                    TWCC 구현 후 전후 비교,
+                    원격 네트워크(LTE/공인 IP) 테스트,
+                    x86 서버 벤치마크 비교.
+                </p>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="py-8 border-t border-white/5">
+        <div class="max-w-5xl mx-auto px-4 sm:px-6 text-center text-sm text-gray-500 font-mono space-y-1">
+            <div>&copy; 2026 0xLENS Systems. sfu-bench v0.2.0 / light-livechat v0.3.4</div>
+        </div>
+    </footer>
+
+    <script>
+    // ── Data ──
+    const data = [
+        { label:'rpi-fo1',        fo:1,   pps:30,    mbps:0.29,  lost:0,  loss:'0.000', avg:3.73,  p95:9.15,   cpu:null },
+        { label:'rpi-fo4',        fo:4,   pps:120,   mbps:1.16,  lost:0,  loss:'0.000', avg:3.42,  p95:9.29,   cpu:null },
+        { label:'rpi-fo8',        fo:8,   pps:240,   mbps:2.32,  lost:0,  loss:'0.000', avg:4.24,  p95:10.27,  cpu:null },
+        { label:'rpi-fo12',       fo:12,  pps:360,   mbps:3.48,  lost:0,  loss:'0.000', avg:4.31,  p95:10.54,  cpu:null },
+        { label:'rpi-fo16',       fo:16,  pps:480,   mbps:4.65,  lost:3,  loss:'0.010', avg:3.81,  p95:10.51,  cpu:null },
+        { label:'rpi-fo19',       fo:19,  pps:570,   mbps:5.52,  lost:0,  loss:'0.000', avg:4.15,  p95:10.95,  cpu:null },
+        { label:'rpi-stress-30',  fo:30,  pps:900,   mbps:8.71,  lost:0,  loss:'0.000', avg:4.42,  p95:11.75,  cpu:13  },
+        { label:'rpi-stress-50',  fo:50,  pps:1500,  mbps:14.52, lost:3,  loss:'0.003', avg:5.49,  p95:13.69,  cpu:13  },
+        { label:'rpi-stress-100', fo:100, pps:3000,  mbps:29.04, lost:0,  loss:'0.000', avg:7.25,  p95:16.79,  cpu:22  },
+        { label:'rpi-stress-200', fo:200, pps:6001,  mbps:58.09, lost:0,  loss:'0.000', avg:10.01, p95:23.23,  cpu:46  },
+        { label:'rpi-stress-300', fo:300, pps:9002,  mbps:87.14, lost:0,  loss:'0.000', avg:11.11, p95:48.69,  cpu:53  },
+        { label:'rpi-stress-400', fo:400, pps:12003, mbps:116.19,lost:0,  loss:'0.000', avg:12.43, p95:48.90,  cpu:62  },
+        { label:'rpi-stress-499', fo:499, pps:14975, mbps:144.96,lost:15, loss:'0.002', avg:14.81, p95:49.04,  cpu:69  },
+    ];
+
+    // ── Result Table ──
+    const tbody = document.getElementById('resultBody');
+    data.forEach((r, i) => {
+        const tr = document.createElement('tr');
+        tr.className = 'border-b border-white/5 hover:bg-white/[0.02] transition' + (i === data.length-1 ? ' text-white font-bold' : '');
+        const passColor = r.lost === 0 ? 'text-green-400' : (parseFloat(r.loss) < 0.1 ? 'text-green-400' : 'text-yellow-400');
+        tr.innerHTML = `
+            <td class="py-3 pr-4 text-xs">${r.label}</td>
+            <td class="py-3 pr-4 text-right">${r.fo}</td>
+            <td class="py-3 pr-4 text-right">${r.pps.toLocaleString()}</td>
+            <td class="py-3 pr-4 text-right">${r.mbps.toFixed(1)}</td>
+            <td class="py-3 pr-4 text-right">${r.lost}</td>
+            <td class="py-3 pr-4 text-right">${r.loss}</td>
+            <td class="py-3 pr-4 text-right">${r.avg.toFixed(2)}</td>
+            <td class="py-3 pr-4 text-right">${r.p95.toFixed(2)}</td>
+            <td class="py-3 pr-4 text-right">${r.cpu !== null ? r.cpu : '—'}</td>
+            <td class="py-3 text-center ${passColor} text-xs font-bold">PASS</td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    // ── Latency Bars ──
+    const latContainer = document.getElementById('latencyBars');
+    const maxP95 = Math.max(...data.map(d => d.p95));
+    data.forEach(r => {
+        const avgW = (r.avg / maxP95 * 100).toFixed(1);
+        const p95W = (r.p95 / maxP95 * 100).toFixed(1);
+        const row = document.createElement('div');
+        row.className = 'flex items-center gap-3';
+        row.innerHTML = `
+            <div class="w-20 sm:w-28 text-right text-xs font-mono text-gray-500 shrink-0">fo=${r.fo}</div>
+            <div class="flex-1 relative h-6 bg-white/5 rounded overflow-hidden">
+                <div class="bar bar-enter absolute inset-y-0 left-0 bg-brand-cyan/20 rounded" style="width:${p95W}%"></div>
+                <div class="bar bar-enter absolute inset-y-0 left-0 bg-brand-rust rounded" style="width:${avgW}%"></div>
+                <span class="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono text-gray-400">${r.avg.toFixed(1)} / ${r.p95.toFixed(1)} ms</span>
+            </div>
+        `;
+        latContainer.appendChild(row);
+    });
+
+    // ── CPU Bars ──
+    const cpuContainer = document.getElementById('cpuBars');
+    data.filter(d => d.cpu !== null).forEach(r => {
+        const w = r.cpu;
+        const color = w > 80 ? 'bg-red-500' : w > 50 ? 'bg-yellow-500' : 'bg-green-500';
+        const row = document.createElement('div');
+        row.className = 'flex items-center gap-3';
+        row.innerHTML = `
+            <div class="w-20 sm:w-28 text-right text-xs font-mono text-gray-500 shrink-0">fo=${r.fo}</div>
+            <div class="flex-1 relative h-6 bg-white/5 rounded overflow-hidden">
+                <div class="bar bar-enter absolute inset-y-0 left-0 ${color}/80 rounded" style="width:${w}%"></div>
+                <span class="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono text-gray-400">${w}%</span>
+            </div>
+        `;
+        cpuContainer.appendChild(row);
+    });
+
+    // ═══ Conference Data (v0.3.4 baseline) ═══
+    const confData = [
+        { label:'conf-5p',  n:5,  streams:20,  inPps:150,  outPps:600,    lost:0,      loss:'0.000', avg:3.37,  p95:6.25,  cpu:7,   pass:true },
+        { label:'conf-10p', n:10, streams:90,  inPps:300,  outPps:2700,   lost:0,      loss:'0.000', avg:5.79,  p95:9.84,  cpu:22,  pass:true },
+        { label:'conf-20p', n:20, streams:380, inPps:600,  outPps:11362,  lost:0,      loss:'0.000', avg:10.57, p95:19.13, cpu:52,  pass:true },
+        { label:'conf-25p', n:25, streams:600, inPps:750,  outPps:17948,  lost:45,     loss:'0.004', avg:15.35, p95:26.95, cpu:80,  pass:true },
+        { label:'conf-30p', n:30, streams:870, inPps:900,  outPps:23488,  lost:150075, loss:'9.595', avg:67.45, p95:85.98, cpu:121, pass:false },
+    ];
+
+    // ═══ Worker Optimization Evolution (30p Conference) ═══
+    const optData = [
+        { phase:'v0.3.4', tag:'baseline',   loss:9.60,  avg:67.45, p95:85.98,  cpu:121, pass:false, desc:'single core saturated' },
+        { phase:'v0.3.5', tag:'W-1 spawn',  loss:1.29,  avg:35.42, p95:142.19, cpu:118, pass:true,  desc:'fan-out tokio::spawn' },
+        { phase:'v0.3.6', tag:'W-2 reuse',  loss:0.10,  avg:29.79, p95:168.48, cpu:113, pass:true,  desc:'SO_REUSEPORT 4 workers' },
+        { phase:'v0.3.7', tag:'W-3 egress', loss:0.00,  avg:15.45, p95:36.55,  cpu:138, pass:true,  desc:'subscriber egress task (LiveKit)' },
+    ];
+
+    // Optimization table
+    const optBody = document.getElementById('optBody');
+    if (optBody) {
+        optData.forEach((r, i) => {
+            const tr = document.createElement('tr');
+            const isLast = i === optData.length - 1;
+            const isFail = !r.pass;
+            const lossColor = r.loss > 1 ? 'text-red-400' : r.loss > 0 ? 'text-yellow-400' : 'text-green-400';
+            const rowClass = isLast ? 'text-brand-cyan font-bold' : (isFail ? 'text-red-400' : '');
+            tr.className = 'border-b border-white/5 hover:bg-white/[0.02] transition ' + rowClass;
+            tr.innerHTML = `
+                <td class="py-3 pr-4 text-xs">${r.phase}</td>
+                <td class="py-3 pr-4 text-xs">${r.tag}</td>
+                <td class="py-3 pr-4 text-right ${lossColor} font-bold">${r.loss.toFixed(2)}%</td>
+                <td class="py-3 pr-4 text-right">${r.avg.toFixed(1)}ms</td>
+                <td class="py-3 pr-4 text-right">${r.p95.toFixed(1)}ms</td>
+                <td class="py-3 pr-4 text-right">${r.cpu}%</td>
+                <td class="py-3 pr-4 text-xs text-gray-500 hidden sm:table-cell">${r.desc}</td>
+            `;
+            optBody.appendChild(tr);
+        });
+    }
+
+    // Optimization loss bar chart
+    const optLossBars = document.getElementById('optLossBars');
+    if (optLossBars) {
+        const maxLoss = Math.max(...optData.map(d => d.loss));
+        optData.forEach(r => {
+            const w = maxLoss > 0 ? (r.loss / maxLoss * 100).toFixed(1) : 0;
+            const color = r.loss > 1 ? 'bg-red-500' : r.loss > 0 ? 'bg-yellow-500' : 'bg-green-500';
+            const row = document.createElement('div');
+            row.className = 'flex items-center gap-3';
+            row.innerHTML = `
+                <div class="w-24 sm:w-32 text-right text-xs font-mono text-gray-500 shrink-0">${r.tag}</div>
+                <div class="flex-1 relative h-6 bg-white/5 rounded overflow-hidden">
+                    <div class="bar bar-enter absolute inset-y-0 left-0 ${color}/80 rounded" style="width:${w}%"></div>
+                    <span class="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono text-gray-400">${r.loss.toFixed(2)}%</span>
+                </div>
+            `;
+            optLossBars.appendChild(row);
+        });
+    }
+
+    // Conference table
+    const confBody = document.getElementById('confBody');
+    confData.forEach((r, i) => {
+        const tr = document.createElement('tr');
+        const isLast = i === confData.length - 1;
+        const isFail = !r.pass;
+        tr.className = 'border-b border-white/5 hover:bg-white/[0.02] transition' + (isFail ? ' text-red-400' : (i === confData.length-2 ? ' text-white font-bold' : ''));
+        const judgeColor = r.pass ? 'text-green-400' : 'text-red-400';
+        const judgeText = r.pass ? 'PASS' : 'FAIL';
+        tr.innerHTML = `
+            <td class="py-3 pr-4 text-xs">${r.label}</td>
+            <td class="py-3 pr-4 text-right">${r.n}</td>
+            <td class="py-3 pr-4 text-right">${r.streams}</td>
+            <td class="py-3 pr-4 text-right">${r.inPps}</td>
+            <td class="py-3 pr-4 text-right">${r.outPps.toLocaleString()}</td>
+            <td class="py-3 pr-4 text-right">${r.lost.toLocaleString()}</td>
+            <td class="py-3 pr-4 text-right">${r.loss}</td>
+            <td class="py-3 pr-4 text-right">${r.avg.toFixed(2)}</td>
+            <td class="py-3 pr-4 text-right">${r.p95.toFixed(2)}</td>
+            <td class="py-3 pr-4 text-right">${r.cpu}</td>
+            <td class="py-3 text-center ${judgeColor} text-xs font-bold">${judgeText}</td>
+        `;
+        confBody.appendChild(tr);
+    });
+
+    // Conference CPU bars
+    const confCpuContainer = document.getElementById('confCpuBars');
+    confData.forEach(r => {
+        const w = Math.min(r.cpu, 100);
+        const color = !r.pass ? 'bg-red-500' : r.cpu > 60 ? 'bg-yellow-500' : 'bg-green-500';
+        const overflow = r.cpu > 100 ? ` (${r.cpu}% — OVERFLOW)` : '';
+        const row = document.createElement('div');
+        row.className = 'flex items-center gap-3';
+        row.innerHTML = `
+            <div class="w-20 sm:w-28 text-right text-xs font-mono text-gray-500 shrink-0">${r.n}P (${r.streams})</div>
+            <div class="flex-1 relative h-6 bg-white/5 rounded overflow-hidden">
+                <div class="bar bar-enter absolute inset-y-0 left-0 ${color}/80 rounded" style="width:${w}%"></div>
+                <span class="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono text-gray-400">${r.cpu}%${overflow}</span>
+            </div>
+        `;
+        confCpuContainer.appendChild(row);
+    });
+
+    // ── Animate bars on scroll ──
+    setTimeout(() => {
+        document.querySelectorAll('.bar-enter').forEach(el => el.classList.remove('bar-enter'));
+    }, 300);
+    </script>
+
+        <!-- ========================================== -->
+        <!-- WORKER OPTIMIZATION EVOLUTION -->
+        <!-- ========================================== -->
+
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-12 pt-8 border-t border-brand-rust/30">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-rust/10 border border-brand-rust/20 text-xs font-mono text-brand-rust mb-6">
+                <span class="w-2 h-2 rounded-full bg-brand-rust animate-pulse"></span>
+                Worker Pipeline Optimization — v0.3.4 → v0.3.7
+            </div>
+            <h2 class="text-3xl sm:text-4xl font-extrabold text-white leading-tight mb-4 tracking-tight">
+                Loss <span class="text-gradient">9.6%</span> → <span style="background:linear-gradient(to right,#22c55e,#4ade80);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:800">0.000%</span>
+            </h2>
+            <p class="text-gray-400 text-base sm:text-lg leading-relaxed max-w-2xl word-keep-all">
+                30인 conference에서 단일 코어 포화를 3단계 워커 파이프라인으로 해결.
+                LiveKit의 검증된 subscriber egress task 패턴을 Rust/Tokio로 이식.
+            </p>
+        </section>
+
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+            <h2 class="text-xl sm:text-2xl font-bold mb-6 font-mono text-white">30p Conference — Optimization Evolution</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm font-mono border-collapse">
+                    <thead>
+                        <tr class="border-b border-white/10 text-gray-400 text-left">
+                            <th class="py-3 pr-4">Version</th>
+                            <th class="py-3 pr-4">Phase</th>
+                            <th class="py-3 pr-4 text-right">Loss</th>
+                            <th class="py-3 pr-4 text-right">Avg</th>
+                            <th class="py-3 pr-4 text-right">P95</th>
+                            <th class="py-3 pr-4 text-right">CPU</th>
+                            <th class="py-3 pr-4 hidden sm:table-cell">Key Change</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-300" id="optBody"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+            <h2 class="text-xl sm:text-2xl font-bold mb-6 font-mono text-white">Loss Reduction</h2>
+            <p class="text-gray-400 text-sm mb-6 word-keep-all">30인 conference에서 각 단계별 loss 감소 추이. W-3에서 0%로 수렴.</p>
+            <div class="space-y-3" id="optLossBars"></div>
+        </section>
+
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+            <h2 class="text-xl sm:text-2xl font-bold mb-8 font-mono text-white">Optimization Analysis</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="bg-brand-surface border border-brand-rust/20 rounded-xl p-6">
+                    <h3 class="font-mono text-brand-rust font-bold mb-3">W-1: Fan-out Spawn</h3>
+                    <p class="text-gray-400 text-sm leading-relaxed word-keep-all">
+                        encrypt+send를 <b class="text-white">tokio::spawn</b>으로 분리.
+                        메인 recv 루프가 fan-out에 블로킹되지 않아
+                        Tokio work-stealing이 유휴 코어를 활용.
+                        loss <b class="text-yellow-400">9.6% → 1.3%</b>.
+                    </p>
+                </div>
+                <div class="bg-brand-surface border border-brand-cyan/20 rounded-xl p-6">
+                    <h3 class="font-mono text-brand-cyan font-bold mb-3">W-2: SO_REUSEPORT</h3>
+                    <p class="text-gray-400 text-sm leading-relaxed word-keep-all">
+                        동일 포트에 <b class="text-white">4개 독립 소켓</b>, 커널 4-tuple hash로
+                        패킷 분배. recv+decrypt도 멀티코어 분산.
+                        loss <b class="text-yellow-300">1.3% → 0.1%</b>.
+                    </p>
+                </div>
+                <div class="bg-brand-surface border border-green-500/20 rounded-xl p-6">
+                    <h3 class="font-mono text-green-400 font-bold mb-3">W-3: Egress Task</h3>
+                    <p class="text-gray-400 text-sm leading-relaxed word-keep-all">
+                        subscriber별 <b class="text-white">전용 egress task</b>, outbound_srtp 독점.
+                        Mutex 경합 원천 제거. LiveKit 패턴.
+                        loss <b class="text-green-400">0.1% → 0.000%</b>, latency <b class="text-green-400">15ms</b>.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="py-8 border-t border-white/5">
+        <div class="max-w-5xl mx-auto px-4 sm:px-6 text-center text-sm text-gray-500 font-mono">
+            &copy; 2026 0xLENS Systems — sfu-bench v0.2.0 / light-livechat v0.3.4~v0.3.7
+        </div>
+    </footer>
+
+    <script>
+    // re-animate new sections
+    setTimeout(() => {
+        document.querySelectorAll('.bar-enter').forEach(el => el.classList.remove('bar-enter'));
+    }, 500);
+    </script>
+
+</body>
+</html>

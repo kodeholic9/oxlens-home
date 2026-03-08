@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="ko">
+<!-- 
+  @author: kodeholic (powered by Claude)
+  @description: 0xLENS Admin Dashboard — Brand-aligned design
+-->
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>0xLENS — Admin Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Pretendard', 'sans-serif'],
+              mono: ['JetBrains Mono', 'monospace'],
+            },
+            colors: {
+              brand: {
+                rust: '#E45B25',
+                cyan: '#00F0FF',
+                dark: '#0B0F19',
+                surface: '#151B2B',
+              },
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: #0B0F19; }
+      ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+      ::-webkit-scrollbar-thumb:hover { background: #475569; }
+      .row-selected { background-color: rgba(228, 91, 37, 0.1) !important; }
+    </style>
+  </head>
+  <body class="bg-brand-dark text-gray-300 font-sans antialiased h-screen flex overflow-hidden">
+
+    <!-- ── Sidebar ── -->
+    <aside class="w-52 bg-brand-surface border-r border-white/10 flex flex-col z-20 flex-none">
+      <div class="h-14 flex items-center px-4 border-b border-white/10 bg-brand-dark">
+        <a href="../index.html" class="flex items-baseline shrink-0">
+          <span class="font-mono text-lg font-extrabold tracking-tight">
+            <span class="text-brand-rust">0x</span><span class="text-white">LENS</span>
+          </span>
+          <span class="text-[10px] font-mono text-brand-cyan/50 ml-2 tracking-wider">ADMIN</span>
+        </a>
+      </div>
+      <nav class="flex-grow py-4 px-3 space-y-1">
+        <a href="#" class="flex items-center gap-2 px-3 py-2.5 bg-white/5 text-white rounded-lg text-sm border border-white/10">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+          </svg>
+          <span class="font-medium">Telemetry</span>
+        </a>
+      </nav>
+      <div class="px-3 pb-4 space-y-1.5">
+        <label class="text-[10px] text-gray-500 uppercase tracking-wider font-mono">Server</label>
+        <select id="srv-url"
+          class="w-full bg-brand-dark border border-white/10 rounded px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-brand-cyan/30">
+          <option value="ws://127.0.0.1:1974/admin/ws">localhost (ws)</option>
+          <option value="ws://192.168.0.29:1974/admin/ws">RPi local (ws)</option>
+          <option value="wss://www.oxlens.com/admin/ws">oxlens.com (wss)</option>
+        </select>
+      </div>
+    </aside>
+
+    <!-- ── Main ── -->
+    <main class="flex-grow flex flex-col h-screen overflow-hidden bg-brand-dark min-w-0">
+
+      <!-- Header -->
+      <header class="h-14 bg-brand-surface border-b border-white/10 flex items-center justify-between px-5 flex-none">
+        <h1 class="text-lg font-semibold text-white">Media Telemetry</h1>
+        <div class="flex items-center gap-3">
+          <div class="flex items-center gap-2 px-2.5 py-1 bg-brand-dark border border-white/10 rounded text-xs font-mono">
+            <span id="conn-dot" class="w-2 h-2 rounded-full bg-gray-600"></span>
+            <span id="conn-status" class="text-gray-400">OFFLINE</span>
+          </div>
+          <button id="btn-connect" title="서버 접속" class="p-1.5 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white rounded border border-white/10 transition-colors">
+            <svg id="icon-connect" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+            </svg>
+            <svg id="icon-disconnect" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- 메인 레이아웃 -->
+      <div class="flex-grow flex gap-3 px-4 py-3 min-h-0 overflow-hidden">
+
+        <!-- 좌: Room 목록 -->
+        <div class="w-[260px] bg-brand-surface rounded-lg border border-white/10 flex flex-col min-h-0 flex-none">
+          <div class="px-3 py-2 border-b border-white/10 flex-none">
+            <h2 class="text-sm font-semibold text-white">Rooms</h2>
+          </div>
+          <div class="overflow-y-auto flex-grow">
+            <table class="w-full text-left border-collapse whitespace-nowrap">
+              <thead class="sticky top-0 bg-brand-dark z-10">
+                <tr class="border-b border-white/10 text-[10px] font-medium text-gray-500 uppercase font-mono">
+                  <th class="py-2 px-3">방</th>
+                  <th class="py-2 px-3 text-center">접속</th>
+                  <th class="py-2 px-3">참가자</th>
+                </tr>
+              </thead>
+              <tbody id="room-tbody" class="divide-y divide-white/5 text-xs"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 중: 실시간 개요 + SDP -->
+        <div class="flex-grow flex flex-col gap-3 min-h-0">
+          <!-- 상: 개요 테이블 -->
+          <div class="flex-grow bg-brand-surface rounded-lg border border-white/10 flex flex-col min-h-0">
+            <div class="px-3 py-2 border-b border-white/10 flex items-center gap-2 flex-none">
+              <span class="relative flex h-2 w-2">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-cyan/60 opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-2 w-2 bg-brand-cyan"></span>
+              </span>
+              <h2 class="text-sm font-semibold text-white">실시간 개요</h2>
+            </div>
+            <div class="overflow-y-auto flex-grow">
+              <table class="w-full text-left border-collapse whitespace-nowrap">
+                <thead class="sticky top-0 bg-brand-dark z-10">
+                  <tr class="border-b border-white/10 text-[10px] font-medium text-gray-500 uppercase font-mono">
+                    <th class="py-2 px-2">참가자</th>
+                    <th class="py-2 px-2">방향</th>
+                    <th class="py-2 px-2">kind</th>
+                    <th class="py-2 px-2">패킷</th>
+                    <th class="py-2 px-2">손실률</th>
+                    <th class="py-2 px-2">jitter</th>
+                    <th class="py-2 px-2">RTT</th>
+                    <th class="py-2 px-2">상태</th>
+                  </tr>
+                </thead>
+                <tbody id="overview-tbody" class="divide-y divide-white/5 text-[11px] font-mono"></tbody>
+              </table>
+            </div>
+          </div>
+          <!-- 상하 리사이즈 스플리터 -->
+          <div id="sdp-splitter" class="h-2 flex-none cursor-row-resize flex items-center justify-center group" title="드래그로 높이 조절">
+            <div class="w-10 h-0.5 bg-white/10 rounded group-hover:bg-white/30 transition-colors"></div>
+          </div>
+          <!-- 하: SDP 상태 -->
+          <div id="sdp-panel" class="bg-brand-surface rounded-lg border border-white/10 flex flex-col flex-none" style="height:160px">
+            <div class="px-3 py-2 border-b border-white/10 flex-none">
+              <h2 class="text-sm font-semibold text-white">SDP 상태</h2>
+            </div>
+            <div id="sdp-body" class="overflow-auto flex-grow p-3 text-xs">
+              <div class="text-gray-500 italic text-center py-4">참가자를 클릭하세요</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 좌우 리사이즈 스플리터 -->
+        <div id="col-splitter" class="w-2 flex-none cursor-col-resize flex items-center justify-center group" title="드래그로 너비 조절">
+          <div class="h-10 w-0.5 bg-white/10 rounded group-hover:bg-white/30 transition-colors"></div>
+        </div>
+        <!-- 우: 상세 + SDP + SFU -->
+        <div id="right-panel" class="flex flex-col gap-3 min-h-0 flex-none" style="width:300px">
+          <!-- 참가자 상세 -->
+          <div class="flex-grow bg-brand-surface rounded-lg border border-white/10 flex flex-col min-h-0">
+            <div class="px-3 py-2 border-b border-white/10 flex-none">
+              <h2 id="detail-title" class="text-sm font-semibold text-white">참가자 상세</h2>
+            </div>
+            <div id="detail-body" class="overflow-y-auto flex-grow p-3 space-y-3 text-xs">
+              <div class="text-gray-500 italic text-center py-8">참가자를 클릭하세요</div>
+            </div>
+          </div>
+          <!-- SFU 서버 지표 + Contract -->
+          <div class="h-[520px] bg-brand-surface rounded-lg border border-white/10 flex flex-col flex-none">
+            <div class="px-3 py-2 border-b border-white/10 flex items-center justify-between flex-none">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-brand-rust"></span>
+                <h2 class="text-sm font-semibold text-white">SFU 서버</h2>
+              </div>
+              <div class="flex items-center gap-1">
+                <button id="btn-contract" title="Contract 체크" class="px-1.5 py-0.5 text-[9px] font-mono bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white rounded border border-white/10 transition-colors">✅ Contract</button>
+                <button id="btn-snapshot" title="스냅샷 복사" class="px-1.5 py-0.5 text-[9px] font-mono bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white rounded border border-white/10 transition-colors">📋 스냅샷</button>
+              </div>
+            </div>
+            <div id="sfu-body" class="overflow-y-auto flex-grow p-3 text-xs">
+              <div class="text-gray-500 italic text-center py-4">데이터 대기</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

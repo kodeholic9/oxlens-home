@@ -1,0 +1,892 @@
+<!doctype html>
+<html lang="ko">
+  <!-- 
+  @author: kodeholic (powered by Claude)
+  @description: 0xLENS (oxlens.com) B2B Tech Landing Page 
+  @concept: Rust SFU born from real failure + E2E Telemetry & AI Diagnostics
+-->
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>0xLENS - Core Media Engine & AI Observability</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap"
+      rel="stylesheet"
+    />
+
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["Pretendard", "sans-serif"],
+              mono: ["JetBrains Mono", "monospace"],
+            },
+            colors: {
+              brand: {
+                rust: "#E45B25",
+                cyan: "#00F0FF",
+                dark: "#0B0F19",
+                surface: "#151B2B",
+              },
+            },
+            animation: {
+              blink: "blink 1s step-end infinite",
+              float: "float 6s ease-in-out infinite",
+              scan: "scan 3s linear infinite",
+            },
+            keyframes: {
+              blink: { "0%, 100%": { opacity: "1" }, "50%": { opacity: "0" } },
+              float: {
+                "0%, 100%": { transform: "translateY(0)" },
+                "50%": { transform: "translateY(-10px)" },
+              },
+              scan: {
+                "0%": { transform: "translateY(-100%)" },
+                "100%": { transform: "translateY(1000%)" },
+              },
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      body {
+        background-color: #0b0f19;
+        color: #e2e8f0;
+      }
+      .bg-grid {
+        background-size: 40px 40px;
+        background-image:
+          linear-gradient(
+            to right,
+            rgba(255, 255, 255, 0.05) 1px,
+            transparent 1px
+          ),
+          linear-gradient(
+            to bottom,
+            rgba(255, 255, 255, 0.05) 1px,
+            transparent 1px
+          );
+      }
+      .text-gradient {
+        background: linear-gradient(to right, #e45b25, #ff8a50);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      .window-controls::before {
+        content: " ";
+        display: block;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #ff5f56;
+        box-shadow:
+          20px 0 0 #ffbd2e,
+          40px 0 0 #27c93f;
+        margin-bottom: 16px;
+      }
+      ::-webkit-scrollbar {
+        width: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #0b0f19;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #334155;
+        border-radius: 4px;
+      }
+      /* Mobile nav overlay */
+      .mobile-nav {
+        transform: translateX(100%);
+        transition: transform 0.3s ease;
+      }
+      .mobile-nav.open {
+        transform: translateX(0);
+      }
+      /* word-keep-all for Korean line breaks */
+      .word-keep-all {
+        word-break: keep-all;
+      }
+    </style>
+  </head>
+  <body
+    class="bg-grid min-h-screen flex flex-col font-sans antialiased selection:bg-brand-rust selection:text-white"
+  >
+    <!-- GNB -->
+    <header
+      class="fixed w-full top-0 z-50 bg-brand-dark/80 backdrop-blur-md border-b border-white/10"
+    >
+      <div
+        class="max-w-7xl mx-auto px-4 sm:px-6 h-16 sm:h-20 flex justify-between items-center"
+      >
+        <!-- Logo -->
+        <a href="#" class="flex items-baseline shrink-0">
+          <span
+            class="font-mono text-2xl sm:text-3xl font-extrabold tracking-tight"
+          >
+            <span class="text-brand-rust">0x</span
+            ><span class="text-white">LENS</span>
+          </span>
+          <span
+            class="ml-3 text-xs font-mono text-brand-cyan/40 tracking-widest hidden lg:inline-block"
+            title="ASCII for O and X"
+          >
+            [0x4F 0x58]
+          </span>
+        </a>
+
+        <!-- Desktop nav -->
+        <nav
+          class="hidden md:flex items-center space-x-8 text-sm font-medium text-gray-400 font-mono"
+        >
+          <a href="./client/index.html" class="hover:text-white transition"
+            >01_Client</a
+          >
+          <a href="./admin/index.html" class="hover:text-white transition"
+            >02_Admin</a
+          >
+          <a
+            href="#ai-diagnostics"
+            class="hover:text-white transition text-brand-cyan"
+            >03_AI_FactCheck</a
+          >
+          <div class="relative group">
+            <button
+              class="hover:text-white transition flex items-center gap-1 text-brand-rust"
+            >
+              04_Docs
+              <svg
+                class="w-3 h-3 opacity-50 group-hover:opacity-100 transition"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M19 9l-7 7-7-7"
+                />
+              </svg>
+            </button>
+            <div
+              class="absolute top-full right-0 mt-2 w-52 bg-brand-surface border border-white/10 rounded-lg shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 py-2"
+            >
+              <a
+                href="./docs/telemetry.html"
+                class="block px-4 py-2.5 text-gray-400 hover:text-white hover:bg-white/5 transition text-xs"
+                >Telemetry Spec</a
+              >
+              <a
+                href="./docs/benchmark.html"
+                class="block px-4 py-2.5 text-gray-400 hover:text-white hover:bg-white/5 transition text-xs"
+                >Benchmark Report</a
+              >
+            </div>
+          </div>
+        </nav>
+
+        <!-- Desktop CTA -->
+        <div class="hidden md:block">
+          <button
+            class="font-mono text-sm px-5 py-2.5 bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/30 rounded hover:bg-brand-cyan/20 hover:shadow-[0_0_15px_rgba(0,240,255,0.3)] transition-all duration-300"
+          >
+            &gt; get_license()
+          </button>
+        </div>
+
+        <!-- Mobile hamburger -->
+        <button
+          id="menuBtn"
+          class="md:hidden p-2 text-gray-400 hover:text-white transition"
+          aria-label="메뉴 열기"
+        >
+          <svg
+            class="w-6 h-6"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 6h16M4 12h16M4 18h16"
+            />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Mobile nav overlay -->
+    <div
+      id="mobileNav"
+      class="mobile-nav fixed inset-0 z-[60] bg-brand-dark/95 backdrop-blur-lg flex flex-col md:hidden"
+    >
+      <div
+        class="flex justify-between items-center px-4 h-16 border-b border-white/10"
+      >
+        <span class="font-mono text-2xl font-extrabold tracking-tight">
+          <span class="text-brand-rust">0x</span
+          ><span class="text-white">LENS</span>
+        </span>
+        <button
+          id="closeBtn"
+          class="p-2 text-gray-400 hover:text-white transition"
+          aria-label="메뉴 닫기"
+        >
+          <svg
+            class="w-6 h-6"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M6 18L18 6M6 6l12 12"
+            />
+          </svg>
+        </button>
+      </div>
+      <nav class="flex flex-col px-6 py-8 space-y-6 text-lg font-mono">
+        <a
+          href="./client/index.html"
+          class="text-gray-300 hover:text-white transition"
+          >01_Client</a
+        >
+        <a
+          href="./admin/index.html"
+          class="text-gray-300 hover:text-white transition"
+          >02_Admin</a
+        >
+        <a
+          href="#ai-diagnostics"
+          class="text-brand-cyan hover:text-white transition"
+          onclick="closeMobileNav()"
+          >03_AI_FactCheck</a
+        >
+        <div class="text-brand-rust">04_Docs</div>
+        <a
+          href="./docs/telemetry.html"
+          class="text-gray-400 hover:text-white transition pl-4 text-base"
+          >└ Telemetry Spec</a
+        >
+        <a
+          href="./docs/benchmark.html"
+          class="text-gray-400 hover:text-white transition pl-4 text-base"
+          >└ Benchmark Report</a
+        >
+        <div class="pt-4 border-t border-white/10">
+          <button
+            class="w-full font-mono text-sm px-5 py-3 bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/30 rounded hover:bg-brand-cyan/20 transition-all"
+          >
+            &gt; get_license()
+          </button>
+        </div>
+      </nav>
+    </div>
+
+    <!-- Hero Section -->
+    <main class="flex-1 mt-16 sm:mt-20">
+      <section
+        class="max-w-7xl mx-auto px-4 sm:px-6 py-12 sm:py-20 lg:py-28 flex flex-col lg:flex-row items-center gap-10 lg:gap-16 relative"
+      >
+        <div
+          class="absolute top-1/2 left-1/4 -translate-y-1/2 w-64 sm:w-96 h-64 sm:h-96 bg-brand-rust/20 rounded-full blur-[120px] pointer-events-none"
+        ></div>
+
+        <!-- 좌측 카피 -->
+        <div class="flex-1 z-10">
+          <div
+            class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs font-mono text-brand-cyan mb-6"
+          >
+            <span
+              class="w-2 h-2 rounded-full bg-brand-cyan animate-pulse"
+            ></span>
+            v0.3.7 : Egress Pipeline &amp; 30p Conference loss 0%
+          </div>
+
+          <h1
+            class="text-3xl sm:text-5xl lg:text-6xl font-extrabold text-white leading-[1.2] mb-6 tracking-tight word-keep-all"
+          >
+            추측하지 마세요.<br />
+            <span class="text-gradient font-mono">숫자로 증명된</span
+            ><br />WebRTC 코어 스택.
+          </h1>
+
+          <p
+            class="text-base sm:text-lg text-gray-400 mb-8 sm:mb-10 leading-relaxed word-keep-all max-w-2xl"
+          >
+            SDP 재협상 지옥에서 프로젝트를 한 번 말아먹고, 처음부터 다시
+            만들었습니다. 서버는 SDP를 모르고,
+            <b>Publish PC와 Subscribe PC를 분리</b>했습니다. 그리고
+            <b>단말(A) → SFU(B) → 수신(C)</b> 전 구간을 3초마다 교차 검증합니다.
+            문제가 생기면 스냅샷 하나 복사해서 Claude에 붙여넣으세요.
+          </p>
+
+          <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
+            <button
+              class="px-8 py-4 bg-white text-black font-bold rounded hover:bg-gray-200 transition text-center"
+            >
+              Start Free Trial
+            </button>
+            <button
+              class="px-8 py-4 bg-brand-surface border border-white/10 text-white font-mono text-sm rounded hover:bg-white/5 transition flex items-center justify-center gap-2 group"
+            >
+              <span
+                class="text-brand-rust group-hover:text-brand-cyan transition-colors"
+                >cargo</span
+              >
+              add oxlens-core
+            </button>
+          </div>
+        </div>
+
+        <!-- 우측 코드 블록 -->
+        <div class="flex-1 w-full z-10 lg:animate-float">
+          <div
+            class="bg-[#1E1E1E] rounded-xl p-4 sm:p-6 border border-white/10 shadow-2xl window-controls font-mono text-xs sm:text-sm leading-relaxed overflow-x-auto relative"
+          >
+            <div
+              class="absolute top-4 right-4 text-white/5 text-2xl sm:text-4xl font-black pointer-events-none tracking-widest"
+            >
+              0x4F58
+            </div>
+
+            <div class="text-gray-500 mb-2">
+              // livechatd — 2PC/SDP-free SFU (Rust + Tokio + Axum)
+            </div>
+            <div>
+              <span class="text-purple-400">let</span> cert = ServerCert::<span
+                class="text-blue-300"
+                >generate</span
+              >()?;
+            </div>
+            <br />
+            <div class="pl-4 text-gray-500">
+              // Ingress: SO_REUSEPORT × 4 workers (recv → decrypt)
+            </div>
+            <div class="pl-4">
+              <span class="text-purple-400">for</span> i
+              <span class="text-purple-400">in</span>
+              <span class="text-yellow-300">0</span>..<span
+                class="text-yellow-300"
+                >4</span
+              >
+              {
+            </div>
+            <div class="pl-8">
+              <span class="text-purple-400">let</span> sock =
+              <span class="text-blue-300">bind_reuseport</span>(<span
+                class="text-yellow-300"
+                >19740</span
+              >)?;
+            </div>
+            <div class="pl-8">
+              tokio::<span class="text-blue-300">spawn</span>(worker.<span
+                class="text-blue-300"
+                >run</span
+              >());
+            </div>
+            <div class="pl-4">}</div>
+            <br />
+            <div class="pl-4 text-gray-500">
+              // Egress: per-subscriber task (lock-free)
+            </div>
+            <div class="pl-4 text-gray-500">
+              // decrypt → egress_tx.try_send() → egress task
+            </div>
+            <div class="pl-4 text-gray-500">
+              // └→ encrypt(exclusive) → send_to()
+            </div>
+            <br />
+            <div class="pl-4 text-gray-500">
+              // 30p conference: loss 0%, latency 15ms on RPi 4B
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 핵심 아키텍처 -->
+      <section
+        id="core"
+        class="max-w-7xl mx-auto px-4 sm:px-6 py-16 sm:py-20 border-t border-white/5"
+      >
+        <div class="text-center mb-12 sm:mb-16">
+          <h2 class="text-2xl sm:text-3xl font-bold mb-4">
+            이렇게 만들었습니다.
+          </h2>
+          <p class="text-gray-400 text-sm sm:text-base word-keep-all">
+            한 포트에서 ICE, DTLS, SRTP를 모두 처리하고, 참가자 조회는
+            O(1)입니다. 여기에 텔레메트리와 AI 진단을 얹었습니다.
+          </p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8">
+          <!-- 01. 코어 엔진 -->
+          <div
+            class="bg-brand-surface border border-brand-rust/30 p-6 sm:p-8 rounded-2xl relative overflow-hidden group"
+          >
+            <div
+              class="absolute top-0 right-0 p-4 font-mono text-5xl sm:text-6xl font-black text-white/5 group-hover:text-brand-rust/10 transition"
+            >
+              01
+            </div>
+            <h3
+              class="text-lg sm:text-xl font-bold mb-3 font-mono text-brand-rust"
+            >
+              Rust SFU on Raspberry Pi
+            </h3>
+            <p class="text-gray-400 text-sm leading-relaxed word-keep-all">
+              Rust + Tokio + Axum. 단일 바이너리, 외부 의존성 제로.
+              라즈베리파이에서 직접 빌드하고
+              <code class="text-brand-rust/80">scp</code> 하나로 배포합니다.
+              Docker도, JVM도, node_modules도 없습니다.
+            </p>
+          </div>
+
+          <!-- 02. 4단계 지표 파이프라인 -->
+          <div
+            class="bg-brand-surface border border-white/5 hover:border-white/20 p-6 sm:p-8 rounded-2xl relative transition group"
+          >
+            <div
+              class="absolute top-0 right-0 p-4 font-mono text-5xl sm:text-6xl font-black text-white/5 group-hover:text-white/10 transition"
+            >
+              02
+            </div>
+            <h3 class="text-lg sm:text-xl font-bold mb-3 font-mono text-white">
+              4-Stage Telemetry
+            </h3>
+            <p class="text-gray-400 text-sm leading-relaxed word-keep-all">
+              SDP 협상(S), 인코더(A), SFU 릴레이(B), Jitter Buffer(C). 4개
+              구간을 3초 주기로 수집하되, 미디어 처리 성능에는 영향을 주지
+              않습니다. 관측이 품질을 떨어뜨리면 관측의 의미가 없으니까요.
+            </p>
+          </div>
+
+          <!-- 03. WebRTC 계약 검증 -->
+          <div
+            class="bg-brand-surface border border-brand-cyan/30 p-6 sm:p-8 rounded-2xl relative overflow-hidden group"
+          >
+            <div
+              class="absolute top-0 right-0 p-4 font-mono text-5xl sm:text-6xl font-black text-white/5 group-hover:text-brand-cyan/10 transition"
+            >
+              03
+            </div>
+            <h3
+              class="text-lg sm:text-xl font-bold mb-3 font-mono text-brand-cyan"
+            >
+              Contract Fact-Check
+            </h3>
+            <p class="text-gray-400 text-sm leading-relaxed word-keep-all">
+              SFU가 WebRTC 계약을 제대로 이행하는지 8개 항목을 자동 검증합니다.
+              NACK → RTX 히트율, PLI → 키프레임 전달, JB 지연 — 숫자가 O/X를
+              말합니다.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Numbers Don't Lie -->
+      <section
+        id="benchmark"
+        class="max-w-7xl mx-auto px-4 sm:px-6 py-16 sm:py-20 border-t border-white/5"
+      >
+        <div class="text-center mb-12 sm:mb-16">
+          <h2 class="text-2xl sm:text-3xl font-bold mb-4 font-mono">
+            Numbers <span class="text-gradient">Don't Lie.</span>
+          </h2>
+          <p class="text-gray-400 text-sm sm:text-base word-keep-all">
+            라즈베리파이 4B 한 대. 실제 DTLS/SRTP 암호화 포함. 두 가지 시나리오
+            모두 측정했습니다.
+          </p>
+        </div>
+
+        <!-- 2열: Fan-out + Conference -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-10">
+          <!-- Fan-out: 1 pub → 499 sub -->
+          <div
+            class="bg-brand-surface border border-brand-rust/20 rounded-2xl p-6 sm:p-8"
+          >
+            <div class="flex items-center gap-3 mb-6">
+              <span
+                class="px-3 py-1 rounded-full bg-brand-rust/10 text-brand-rust text-xs font-mono font-bold"
+                >BROADCAST</span
+              >
+              <span class="text-gray-500 text-xs font-mono"
+                >1 pub → 499 sub</span
+              >
+            </div>
+            <div class="grid grid-cols-2 gap-4 mb-5">
+              <div class="text-center">
+                <div
+                  class="text-3xl sm:text-4xl font-mono font-extrabold text-brand-rust"
+                >
+                  499
+                </div>
+                <div class="text-[10px] sm:text-xs text-gray-500 mt-1">
+                  Subscribers
+                </div>
+              </div>
+              <div class="text-center">
+                <div
+                  class="text-3xl sm:text-4xl font-mono font-extrabold text-green-400"
+                >
+                  0<span class="text-xl">.002%</span>
+                </div>
+                <div class="text-[10px] sm:text-xs text-gray-500 mt-1">
+                  Packet Loss
+                </div>
+              </div>
+              <div class="text-center">
+                <div
+                  class="text-3xl sm:text-4xl font-mono font-extrabold text-brand-cyan"
+                >
+                  14.8<span class="text-xl">ms</span>
+                </div>
+                <div class="text-[10px] sm:text-xs text-gray-500 mt-1">
+                  Avg Latency
+                </div>
+              </div>
+              <div class="text-center">
+                <div
+                  class="text-3xl sm:text-4xl font-mono font-extrabold text-yellow-400"
+                >
+                  69<span class="text-xl">%</span>
+                </div>
+                <div class="text-[10px] sm:text-xs text-gray-500 mt-1">
+                  RPi CPU
+                </div>
+              </div>
+            </div>
+            <div
+              class="flex flex-wrap gap-x-6 gap-y-1 text-[11px] font-mono text-gray-500"
+            >
+              <span><span class="text-gray-300">15,000</span> pps</span>
+              <span><span class="text-gray-300">145</span> Mbps</span>
+              <span><span class="text-gray-300">45 MB</span> RSS</span>
+            </div>
+          </div>
+
+          <!-- Conference: 30인 회의 -->
+          <div
+            class="bg-brand-surface border border-brand-cyan/20 rounded-2xl p-6 sm:p-8"
+          >
+            <div class="flex items-center gap-3 mb-6">
+              <span
+                class="px-3 py-1 rounded-full bg-brand-cyan/10 text-brand-cyan text-xs font-mono font-bold"
+                >CONFERENCE</span
+              >
+              <span class="text-gray-500 text-xs font-mono"
+                >30 participants × 29 streams = 870</span
+              >
+            </div>
+            <div class="grid grid-cols-2 gap-4 mb-5">
+              <div class="text-center">
+                <div
+                  class="text-3xl sm:text-4xl font-mono font-extrabold text-brand-cyan"
+                >
+                  30
+                </div>
+                <div class="text-[10px] sm:text-xs text-gray-500 mt-1">
+                  Participants
+                </div>
+              </div>
+              <div class="text-center">
+                <div
+                  class="text-3xl sm:text-4xl font-mono font-extrabold text-green-400"
+                >
+                  0<span class="text-xl">.000%</span>
+                </div>
+                <div class="text-[10px] sm:text-xs text-gray-500 mt-1">
+                  Packet Loss
+                </div>
+              </div>
+              <div class="text-center">
+                <div
+                  class="text-3xl sm:text-4xl font-mono font-extrabold text-brand-cyan"
+                >
+                  15.5<span class="text-xl">ms</span>
+                </div>
+                <div class="text-[10px] sm:text-xs text-gray-500 mt-1">
+                  Avg Latency
+                </div>
+              </div>
+              <div class="text-center">
+                <div
+                  class="text-3xl sm:text-4xl font-mono font-extrabold text-yellow-400"
+                >
+                  138<span class="text-xl">%</span>
+                </div>
+                <div class="text-[10px] sm:text-xs text-gray-500 mt-1">
+                  RPi 4-Core
+                </div>
+              </div>
+            </div>
+            <div
+              class="flex flex-wrap gap-x-6 gap-y-1 text-[11px] font-mono text-gray-500"
+            >
+              <span><span class="text-gray-300">870</span> streams</span>
+              <span><span class="text-gray-300">25,975</span> pps</span>
+              <span><span class="text-gray-300">249</span> Mbps</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 최적화 진화 테이블 -->
+        <div
+          class="bg-brand-surface border border-white/5 rounded-2xl p-6 sm:p-8 mb-6"
+        >
+          <div class="flex items-center gap-3 mb-5">
+            <span
+              class="px-3 py-1 rounded-full bg-brand-rust/10 text-brand-rust text-xs font-mono font-bold"
+              >OPTIMIZATION</span
+            >
+            <span class="text-gray-500 text-xs font-mono"
+              >30p Conference — 3-phase worker pipeline</span
+            >
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs sm:text-sm font-mono">
+              <thead>
+                <tr class="text-gray-500 border-b border-white/10">
+                  <th class="text-left py-2 pr-4">Phase</th>
+                  <th class="text-right py-2 px-3">Loss</th>
+                  <th class="text-right py-2 px-3">Latency</th>
+                  <th class="text-left py-2 pl-4 hidden sm:table-cell">
+                    Key Change
+                  </th>
+                </tr>
+              </thead>
+              <tbody class="text-gray-300">
+                <tr class="border-b border-white/5">
+                  <td class="py-2.5 pr-4 text-gray-500">
+                    v0.3.4 <span class="text-gray-600">baseline</span>
+                  </td>
+                  <td class="text-right py-2.5 px-3 text-red-400 font-bold">
+                    9.60%
+                  </td>
+                  <td class="text-right py-2.5 px-3 text-red-400">67ms</td>
+                  <td class="py-2.5 pl-4 text-gray-600 hidden sm:table-cell">
+                    single core saturated
+                  </td>
+                </tr>
+                <tr class="border-b border-white/5">
+                  <td class="py-2.5 pr-4">
+                    W-1 <span class="text-gray-500">spawn</span>
+                  </td>
+                  <td class="text-right py-2.5 px-3 text-yellow-400">1.29%</td>
+                  <td class="text-right py-2.5 px-3 text-yellow-400">35ms</td>
+                  <td class="py-2.5 pl-4 text-gray-500 hidden sm:table-cell">
+                    fan-out tokio::spawn
+                  </td>
+                </tr>
+                <tr class="border-b border-white/5">
+                  <td class="py-2.5 pr-4">
+                    W-2 <span class="text-gray-500">reuseport</span>
+                  </td>
+                  <td class="text-right py-2.5 px-3 text-yellow-300">0.10%</td>
+                  <td class="text-right py-2.5 px-3 text-yellow-300">30ms</td>
+                  <td class="py-2.5 pl-4 text-gray-500 hidden sm:table-cell">
+                    SO_REUSEPORT 4 workers
+                  </td>
+                </tr>
+                <tr>
+                  <td class="py-2.5 pr-4 text-brand-cyan font-bold">
+                    W-3 <span class="text-brand-cyan/70">egress</span>
+                  </td>
+                  <td class="text-right py-2.5 px-3 text-green-400 font-bold">
+                    0.00%
+                  </td>
+                  <td class="text-right py-2.5 px-3 text-green-400 font-bold">
+                    15ms
+                  </td>
+                  <td
+                    class="py-2.5 pl-4 text-brand-cyan/70 hidden sm:table-cell"
+                  >
+                    subscriber egress task (LiveKit)
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 요약 + CTA -->
+        <div
+          class="flex flex-col sm:flex-row items-center justify-between bg-brand-surface border border-white/5 rounded-2xl p-6 sm:p-8 gap-6"
+        >
+          <div
+            class="text-sm font-mono text-gray-400 word-keep-all leading-relaxed"
+          >
+            라즈베리파이 4B에서
+            <span class="text-white font-bold">30인 회의 loss 0%, 15ms</span>,
+            <span class="text-white font-bold">499명 동시 시청</span> loss
+            0.002%. 3단계 워커 파이프라인 최적화로 loss
+            <span class="text-brand-rust font-bold">9.6%</span> →
+            <span class="text-green-400 font-bold">0.000%</span>.
+          </div>
+          <a
+            href="./docs/benchmark.html"
+            class="shrink-0 font-mono text-sm px-6 py-3 bg-brand-rust/10 text-brand-rust border border-brand-rust/30 rounded hover:bg-brand-rust/20 hover:shadow-[0_0_15px_rgba(228,91,37,0.3)] transition-all duration-300"
+          >
+            &gt; view full report
+          </a>
+        </div>
+      </section>
+
+      <!-- AI 스냅샷 뷰어 -->
+      <section
+        id="ai-diagnostics"
+        class="py-16 sm:py-20 bg-black/50 border-y border-white/5"
+      >
+        <div class="max-w-7xl mx-auto px-4 sm:px-6">
+          <div class="flex flex-col lg:flex-row gap-10 lg:gap-12 items-center">
+            <!-- 설명 -->
+            <div class="lg:w-1/3 w-full">
+              <h2 class="text-2xl sm:text-3xl font-bold mb-6 word-keep-all">
+                Copy, Paste, <br /><span class="text-brand-cyan"
+                  >AI Diagnosed.</span
+                >
+              </h2>
+              <p
+                class="text-gray-400 text-sm leading-relaxed mb-6 word-keep-all"
+              >
+                Wireshark 열고 로그 grep 할 시간이 없습니다. 스냅샷 버튼 하나로
+                현재 상태를 <b>구조화된 텍스트</b>로 추출합니다.<br /><br />
+                그대로 Claude에 붙여넣으세요. 한 줄 = 한 사실.
+                <code class="text-brand-cyan/70">[주체:방향:kind:상대]</code>
+                태그로 누구의 어떤 데이터인지 즉시 식별됩니다. 계약 위반 항목,
+                병목 구간, 우선순위별 개선 권고까지 — AI가 정리해 줍니다.
+              </p>
+              <button
+                class="bg-brand-cyan text-black font-bold font-mono text-sm px-6 py-3 rounded hover:bg-white transition flex items-center gap-2"
+                onclick="
+                  alert(
+                    '클립보드에 복사되었습니다. Claude에 붙여넣어 분석을 시작하세요!',
+                  )
+                "
+              >
+                <svg
+                  class="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
+                  ></path>
+                </svg>
+                Copy Snapshot for Claude
+              </button>
+            </div>
+
+            <!-- 스냅샷 터미널 UI -->
+            <div class="lg:w-2/3 w-full">
+              <div
+                class="bg-brand-dark border border-gray-800 rounded-xl p-3 sm:p-4 font-mono text-[11px] sm:text-sm text-gray-300 overflow-x-auto shadow-2xl relative h-[380px] sm:h-[450px] overflow-y-auto"
+              >
+                <div
+                  class="sticky top-0 bg-brand-dark/95 backdrop-blur py-2 border-b border-gray-800 mb-4 text-brand-cyan font-bold flex justify-between text-[11px] sm:text-sm"
+                >
+                  <span>=== LIGHT-SFU TELEMETRY SNAPSHOT ===</span>
+                  <span class="animate-pulse">● REC</span>
+                </div>
+                <pre
+                  class="leading-relaxed whitespace-pre-wrap sm:whitespace-pre"
+                >
+timestamp: 2026-03-05T00:09:45.000Z
+room_id: room_001
+duration: 180s (since join)
+
+<span class="text-brand-rust">--- SDP STATE ---</span>
+[U214:pub] mid=0 audio sendonly opus/48000/2 pt=111 ssrc=456672133 fmtp=minptime=10;useinbandfec=1;usedtx=1 ice=connected dtls=connected
+[U214:pub] mid=1 video sendonly VP8/90000 pt=96 ssrc=2728978483 rtx=2697598594 ice=connected dtls=connected
+[U214:sub] mid=0 audio recvonly opus/48000/2 pt=111 ssrc=4259169172 src=U100 ice=connected dtls=connected
+
+<span class="text-brand-rust">--- ENCODER/DECODER ---</span>
+[U214:pub:video] impl=libvpx hw=N fps=24 quality_limit=bandwidth keyframes=3
+[U214:pub:audio] impl=opus
+[U214:sub:video:U100] impl=libvpx hw=N fps=22 keyframes_decoded=3
+
+<span class="text-brand-rust">--- PUBLISH (3s window) ---</span>
+[U214:audio] pkts=150 bytes=6800 nack=0 pli=0 bitrate=18133 retx=0
+[U214:video] pkts=72 bytes=95000 nack=2 pli=1 bitrate=253333 retx=2 fps=24
+
+<span class="text-brand-rust">--- SUBSCRIBE (3s window) ---</span>
+[U214←U100:audio] pkts=148 lost=2 jitter=4.0ms jb_delay=22ms nack_sent=1 concealment=3
+[U214←U100:video] pkts=73 lost=1 jitter=8.0ms jb_delay=35ms fps=22 freeze=0 dropped=0
+
+<span class="text-brand-rust">--- SFU SERVER (3s window) ---</span>
+[U214] relay: avg=1.2ms max=3.8ms p95=2.1ms count=222
+[server] nack_recv=3 rtx_sent=3 rtx_miss=0 pli_sent=1 sr_relay=6 rr_relay=4 twcc=0
+
+<span class="text-brand-cyan">--- CONTRACT CHECK ---</span>
+<span class="text-green-400">[PASS]</span> sdp_negotiation: all m-lines match expected direction
+<span class="text-green-400">[PASS]</span> nack_rtx: 3/3 = 100% hit rate
+<span class="text-green-400">[PASS]</span> pli_keyframe: pli=1 → keyframes_decoded increased
+<span class="text-red-400">[FAIL]</span> twcc_feedback: 0 sent (not implemented)
+<span class="text-yellow-400">[WARN]</span> bitrate_adaptation: U214 target_bitrate=253333 but available=2500000 (quality_limit=bandwidth)
+<span class="text-green-400">[PASS]</span> jitter_buffer: max jb_delay=42ms &lt; 100ms
+</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="py-8 border-t border-white/5">
+      <div
+        class="max-w-7xl mx-auto px-4 sm:px-6 text-center text-sm text-gray-500 font-mono space-y-1"
+      >
+        <div>
+          &copy; 2026 0xLENS Systems. Zero-Cost Abstraction &amp; Deep
+          Observability.
+        </div>
+        <div>
+          <a
+            href="https://www.oxlens.com"
+            class="text-gray-600 hover:text-brand-cyan transition"
+            target="_blank"
+            rel="noopener"
+            >www.oxlens.com</a
+          >
+        </div>
+      </div>
+    </footer>
+
+    <!-- Mobile nav script -->
+    <script>
+      const menuBtn = document.getElementById("menuBtn");
+      const closeBtn = document.getElementById("closeBtn");
+      const mobileNav = document.getElementById("mobileNav");
+
+      menuBtn.addEventListener("click", () => mobileNav.classList.add("open"));
+      closeBtn.addEventListener("click", () =>
+        mobileNav.classList.remove("open"),
+      );
+
+      function closeMobileNav() {
+        mobileNav.classList.remove("open");
+      }
+
+      // 모바일 nav 내 일반 링크 클릭 시 닫기
+      mobileNav.querySelectorAll('a:not([href^="#"])').forEach((link) => {
+        // 외부 페이지 이동은 자연스럽게 처리됨
+      });
+    </script>
+  </body>
+</html>

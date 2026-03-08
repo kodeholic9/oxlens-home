@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="ko">
+<!-- 
+  @author: kodeholic (powered by Claude)
+  @description: 0xLENS LiveChat Client — Brand-aligned design
+-->
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>0xLENS — LiveChat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Pretendard', 'sans-serif'],
+              mono: ['JetBrains Mono', 'monospace'],
+            },
+            colors: {
+              brand: {
+                rust: '#E45B25',
+                cyan: '#00F0FF',
+                dark: '#0B0F19',
+                surface: '#151B2B',
+                border: 'rgba(255,255,255,0.1)',
+              },
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      html,
+      body {
+        height: 100%;
+        height: 100dvh;
+      }
+      body {
+        -webkit-tap-highlight-color: transparent;
+        overflow: hidden;
+        background-color: #0B0F19;
+      }
+      .no-select {
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      ::-webkit-scrollbar {
+        width: 4px;
+      }
+      ::-webkit-scrollbar-track { background: #0B0F19; }
+      ::-webkit-scrollbar-thumb {
+        background-color: #334155;
+        border-radius: 2px;
+      }
+      .conf-tile {
+        background: #151B2B;
+        border-radius: 0.75rem;
+        border: 2px solid rgba(255,255,255,0.1);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        min-height: 0;
+        position: relative;
+        overflow: hidden;
+        transition: border-color 0.2s;
+      }
+      .conf-tile.is-me {
+        border-color: #E45B25;
+      }
+      @keyframes ptt-ripple {
+        0% { transform: scale(0.8); opacity: 0.6; }
+        100% { transform: scale(1.3); opacity: 0; }
+      }
+      @keyframes ptt-breathe {
+        0%, 100% { opacity: 0.3; transform: scale(1); }
+        50% { opacity: 0.6; transform: scale(1.05); }
+      }
+      .conf-tile .avatar {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.1);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: #e2e8f0;
+      }
+      .conf-tile .name {
+        font-size: 0.75rem;
+        color: #cbd5e1;
+        text-align: center;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        padding: 0 0.5rem;
+      }
+    </style>
+  </head>
+  <body
+    class="bg-brand-dark text-gray-300 font-sans antialiased flex flex-col relative"
+  >
+    <!-- Header -->
+    <header class="bg-brand-surface border-b border-white/10 flex-none z-10">
+      <div
+        class="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between"
+      >
+        <div class="flex items-center gap-3">
+          <!-- 0xLENS CI Logo -->
+          <a href="../index.html" class="flex items-baseline shrink-0">
+            <span class="font-mono text-xl font-extrabold tracking-tight">
+              <span class="text-brand-rust">0x</span><span class="text-white">LENS</span>
+            </span>
+          </a>
+          <span class="text-xs font-mono text-brand-cyan/50 tracking-wider hidden sm:inline">CLIENT</span>
+        </div>
+        <span
+          id="app-version"
+          class="text-xs text-gray-500 font-mono"
+        ></span>
+        <div class="flex items-center gap-2">
+          <span
+            id="ws-badge"
+            class="px-2 py-0.5 rounded text-xs font-medium font-mono bg-brand-surface text-gray-500 border border-white/10"
+            >DISCONNECTED</span
+          >
+          <button
+            id="btn-settings"
+            class="w-8 h-8 rounded-full bg-brand-surface border border-white/10 text-gray-400 flex items-center justify-center hover:bg-white/5 transition-colors"
+            title="설정"
+          >
+            <svg
+              class="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.573-1.066z"
+              />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- 설정 패널 (overlay) -->
+    <div
+      id="settings-panel"
+      class="hidden absolute left-0 right-0 bg-brand-surface border-b border-white/10 px-4 py-3 z-30 shadow-lg"
+      style="top: 56px"
+    >
+      <div class="max-w-lg mx-auto space-y-3">
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-gray-400 font-medium">해상도</span>
+          <select
+            id="set-resolution"
+            class="bg-brand-dark border border-white/10 rounded px-2 py-1 text-xs text-white font-mono"
+          >
+            <option value="640x480">640×480</option>
+            <option value="1280x720" selected>1280×720</option>
+            <option value="1920x1080">1920×1080</option>
+          </select>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-gray-400 font-medium">프레임레이트</span>
+          <select
+            id="set-fps"
+            class="bg-brand-dark border border-white/10 rounded px-2 py-1 text-xs text-white font-mono"
+          >
+            <option value="15">15 fps</option>
+            <option value="24" selected>24 fps</option>
+            <option value="30">30 fps</option>
+          </select>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-gray-400 font-medium">비트레이트</span>
+          <select
+            id="set-bitrate"
+            class="bg-brand-dark border border-white/10 rounded px-2 py-1 text-xs text-white font-mono"
+          >
+            <option value="500000">500 kbps</option>
+            <option value="1500000" selected>1.5 Mbps</option>
+            <option value="2500000">2.5 Mbps</option>
+            <option value="0">제한 없음</option>
+          </select>
+        </div>
+        <p class="text-xs text-gray-500">
+          ※ 변경 사항은 다음 입장 시 적용됩니다.
+        </p>
+      </div>
+    </div>
+
+    <!-- Main -->
+    <main
+      class="flex-grow flex flex-col p-4 gap-4 overflow-hidden relative max-w-lg mx-auto w-full"
+    >
+      <!-- 연결 패널 -->
+      <div
+        class="bg-brand-surface rounded-lg border border-white/10 p-3 flex-none z-20 space-y-2"
+      >
+        <div class="flex gap-2 items-center">
+          <select
+            id="srv-url"
+            class="flex-1 bg-brand-dark border border-white/10 rounded px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-brand-cyan/30"
+          >
+            <option value="ws://127.0.0.1:1974/ws">localhost (ws)</option>
+            <option value="ws://192.168.0.29:1974/ws">RPi local (ws)</option>
+            <option value="wss://www.oxlens.com/ws">oxlens.com (wss)</option>
+          </select>
+          <input
+            type="text"
+            id="user-id"
+            value=""
+            class="w-16 bg-brand-dark border border-white/10 rounded px-2 py-2 text-sm text-white text-center font-mono focus:outline-none focus:border-brand-cyan/30"
+            placeholder="ID"
+          />
+          <!-- 전원 버튼 (연결/해제) -->
+          <button
+            id="btn-connect"
+            class="w-10 h-10 rounded-full bg-brand-surface border border-white/10 text-gray-400 flex items-center justify-center transition-colors hover:bg-white/5 hover:text-brand-cyan"
+            title="연결"
+          >
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 3v5"
+              />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M18.36 6.64A9 9 0 1 1 5.64 6.64"
+              />
+            </svg>
+          </button>
+        </div>
+        <div class="flex gap-2 items-center">
+          <select
+            id="room-select"
+            class="flex-1 bg-brand-dark border border-white/10 rounded px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-brand-cyan/30"
+          >
+            <option value="">방 선택</option>
+          </select>
+          <!-- 입장/퇴장 버튼 -->
+          <button
+            id="btn-room"
+            class="w-10 h-10 rounded-full bg-brand-surface border border-white/10 text-gray-400 flex items-center justify-center transition-colors hover:bg-white/5 hover:text-brand-cyan disabled:opacity-50"
+            title="입장"
+            disabled
+          >
+            <!-- door-enter -->
+            <svg
+              id="icon-room-enter"
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"
+              />
+            </svg>
+            <!-- door-exit -->
+            <svg
+              id="icon-room-exit"
+              class="w-5 h-5 hidden"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+              />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- 미디어 컨트롤 (방 선택 아래, conference-zone 위) -->
+      <div
+        id="conf-controls"
+        class="flex-none bg-brand-surface rounded-lg border border-white/10 px-4 py-2.5 flex items-center justify-between opacity-30 pointer-events-none"
+      >
+          <!-- 좌측 그룹: 긴급발언 + 카메라 전환 -->
+          <div class="flex items-center gap-2">
+            <!-- 긴급발언 토글 (PTT 모드에서만 표시) -->
+            <button
+              id="btn-ptt-lock"
+              class="hidden w-11 h-11 rounded-full border-2 border-red-500/50 text-red-400 items-center justify-center transition-all hover:bg-red-500/10"
+              title="긴급발언 (토글)"
+            >
+              <i class="ph ph-megaphone-simple text-lg"></i>
+            </button>
+            <!-- 카메라 전환 -->
+            <button
+              id="conf-btn-camera"
+              class="w-11 h-11 rounded-full bg-brand-surface border border-white/10 text-white flex items-center justify-center transition-colors hover:bg-white/5 hover:border-brand-cyan/30"
+              title="카메라 전환"
+            >
+              <svg
+                class="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
+            </button>
+          </div>
+          <!-- 우측 그룹: 비디오 + 마이크 + 스피커 -->
+          <div class="flex items-center gap-4">
+            <!-- 비디오 on/off -->
+            <button
+              id="conf-btn-video"
+              class="w-11 h-11 rounded-full bg-brand-surface border border-white/10 text-white flex items-center justify-center transition-colors hover:bg-white/5 hover:border-brand-cyan/30"
+              title="비디오 차단"
+            >
+              <svg
+                id="icon-video-on"
+                class="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+                />
+              </svg>
+              <svg
+                id="icon-video-off"
+                class="w-5 h-5 hidden"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+                />
+                <line
+                  x1="3"
+                  y1="3"
+                  x2="21"
+                  y2="21"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+            <!-- 마이크 on/off -->
+            <button
+              id="conf-btn-mic"
+              class="w-11 h-11 rounded-full bg-brand-surface border border-white/10 text-white flex items-center justify-center transition-colors hover:bg-white/5 hover:border-brand-cyan/30"
+              title="마이크"
+            >
+              <svg
+                id="icon-mic-on"
+                class="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4M12 3a4 4 0 014 4v4a4 4 0 01-8 0V7a4 4 0 014-4z"
+                />
+              </svg>
+              <svg
+                id="icon-mic-off"
+                class="w-5 h-5 hidden"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4M12 3a4 4 0 014 4v4a4 4 0 01-8 0V7a4 4 0 014-4z"
+                />
+                <line
+                  x1="3"
+                  y1="3"
+                  x2="21"
+                  y2="21"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+            <!-- 스피커 on/off -->
+            <button
+              id="conf-btn-speaker"
+              class="w-11 h-11 rounded-full bg-brand-surface border border-white/10 text-white flex items-center justify-center transition-colors hover:bg-white/5 hover:border-brand-cyan/30"
+              title="스피커"
+            >
+              <svg
+                id="icon-speaker-on"
+                class="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+                />
+              </svg>
+              <svg
+                id="icon-speaker-off"
+                class="w-5 h-5 hidden"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+                />
+                <line
+                  x1="17"
+                  y1="9"
+                  x2="23"
+                  y2="15"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <line
+                  x1="23"
+                  y1="9"
+                  x2="17"
+                  y2="15"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+          </div>
+          <!-- /우측 그룹 -->
+      </div>
+
+      <!-- Conference 영역 -->
+      <div
+        id="conference-zone"
+        class="flex-grow flex flex-col overflow-hidden rounded-lg bg-brand-surface border border-white/10 relative"
+      >
+        <!-- Conference 그리드 (컨퍼런스 모드) -->
+        <div
+          id="conf-grid"
+          class="flex-grow grid gap-2 p-3 overflow-hidden"
+          style="grid-template-columns: 1fr; grid-auto-rows: 1fr"
+        ></div>
+
+        <!-- PTT 뷰 (무전기 모드 — 전체 영역이 터치/영상) -->
+        <div
+          id="ptt-view"
+          class="hidden flex-grow flex flex-col items-center justify-center relative select-none"
+          style="touch-action: none;"
+        >
+          <!-- 발화자 영상 (전체 화면) -->
+          <video
+            id="ptt-video"
+            class="hidden absolute inset-0 w-full h-full object-cover"
+            autoplay playsinline
+          ></video>
+
+          <!-- IDLE 대기 화면 -->
+          <div id="ptt-idle-screen" class="flex flex-col items-center gap-3 z-10">
+            <i class="ph ph-hand-tap text-7xl text-blue-400/70 animate-pulse"></i>
+            <span class="text-sm text-blue-400/50 font-bold uppercase tracking-widest">TAP</span>
+            <p class="text-xs text-gray-600 mt-1">화면을 길게 눌러 말하기</p>
+          </div>
+
+          <!-- REQUESTING 대기 화면 -->
+          <div id="ptt-requesting-screen" class="hidden flex flex-col items-center gap-3 z-10">
+            <i class="ph ph-hand-tap text-7xl text-yellow-400/70 animate-pulse"></i>
+            <span class="text-sm text-yellow-400/60 font-bold uppercase tracking-widest">REQUESTING</span>
+          </div>
+
+          <!-- 발화 상태 오버레이 (우측 상단) -->
+          <div id="ptt-talk-overlay" class="hidden absolute top-3 right-3 flex flex-col items-end gap-1.5 z-20">
+            <div id="ptt-talk-badge" class="px-3 py-1 rounded-full text-xs font-mono font-bold shadow-lg"></div>
+            <span id="ptt-talk-timer" class="hidden text-white/50 text-[10px] font-mono tabular-nums pr-1"></span>
+          </div>
+
+          <!-- Revoke 토스트 -->
+          <div id="ptt-revoke-toast" class="hidden absolute bottom-20 left-4 right-4 bg-red-900/90 border border-red-500/40 rounded-lg px-4 py-2.5 text-center z-30">
+            <span class="text-red-300 text-sm font-mono">시간 초과 — 발화권이 회수되었습니다</span>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <audio id="remote-audio" autoplay playsinline style="display: none"></audio>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

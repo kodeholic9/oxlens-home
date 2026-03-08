@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="ko">
+<!--
+  @author: kodeholic (powered by Claude)
+  @description: 0xLENS Media Quality Improvement Story — 8-step timeline
+  @version: v0.3.4
+-->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>0xLENS — 미디어 품질 개선 이야기</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Pretendard', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            rust: '#E45B25',
+                            cyan: '#00F0FF',
+                            dark: '#0B0F19',
+                            surface: '#151B2B'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #0B0F19; color: #E2E8F0; }
+        .bg-grid {
+            background-size: 40px 40px;
+            background-image: linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+                              linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
+        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0B0F19; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        .word-keep-all { word-break: keep-all; }
+
+        /* Step accordion */
+        .step-detail { max-height: 0; overflow: hidden; transition: max-height 0.35s ease; }
+        .step-card.open .step-detail { max-height: 800px; }
+        .step-card.open .step-chevron { transform: rotate(180deg); }
+        .step-card.open { border-color: rgba(0,240,255,0.25); }
+        .step-chevron { transition: transform 0.25s ease; }
+
+        /* Bar chart */
+        .bar-track { background: rgba(255,255,255,0.05); border-radius: 4px; overflow: hidden; }
+        .bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1); }
+
+        /* Metric badge glow */
+        .metric-highlight { box-shadow: 0 0 0 1px rgba(0,240,255,0.25), inset 0 0 12px rgba(0,240,255,0.05); }
+        .metric-changed { box-shadow: 0 0 0 1px rgba(251,191,36,0.25); }
+    </style>
+</head>
+<body class="bg-grid min-h-screen font-sans antialiased selection:bg-brand-rust selection:text-white">
+
+    <!-- Header -->
+    <header class="sticky top-0 z-50 bg-brand-dark/90 backdrop-blur-md border-b border-white/10">
+        <div class="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+            <a href="../index.html" class="flex items-center gap-2">
+                <span class="font-mono text-xl font-extrabold tracking-tight">
+                    <span class="text-brand-rust">0x</span><span class="text-white">LENS</span>
+                </span>
+                <span class="text-gray-600 text-xs font-mono">v0.3.4</span>
+            </a>
+            <nav class="flex items-center gap-4 text-xs font-mono text-gray-500">
+                <a href="../index.html" class="hover:text-white transition">&larr; Home</a>
+                <a href="../livechat-admin/index.html" class="hover:text-white transition">Admin</a>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Hero -->
+    <section class="max-w-5xl mx-auto px-4 sm:px-6 pt-10 pb-6">
+        <h1 class="text-2xl sm:text-3xl font-extrabold text-white mb-2 word-keep-all">
+            미디어 품질 개선 이야기
+        </h1>
+        <p class="text-gray-400 text-sm word-keep-all leading-relaxed max-w-3xl">
+            2026년 3월 5일, 8단계에 걸쳐 영상 품질을 개선한 과정입니다.
+            각 단계에서 무엇을 발견하고, 무엇을 고쳤고, 숫자가 어떻게 바뀌었는지 기록합니다.
+        </p>
+        <button id="glossaryToggle" class="mt-3 text-xs text-brand-cyan hover:text-white transition underline underline-offset-2 font-mono">
+            용어가 어렵다면? (클릭)
+        </button>
+    </section>
+
+    <!-- Glossary -->
+    <div id="glossaryPanel" class="hidden border-y border-white/5 bg-black/30">
+        <div class="max-w-5xl mx-auto px-4 sm:px-6 py-4 grid grid-cols-1 md:grid-cols-2 gap-2" id="glossaryGrid"></div>
+    </div>
+
+    <!-- Timeline -->
+    <section class="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+        <div id="timeline"></div>
+    </section>
+
+    <!-- Before/After Comparison -->
+    <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-10">
+        <div class="bg-brand-surface rounded-xl border border-white/10 p-5 sm:p-6">
+            <h3 class="text-sm font-bold text-white mb-1 font-mono">최초 vs 최종 비교</h3>
+            <p class="text-xs text-gray-500 mb-5">
+                &#9312; 최초 상태 (v0.3.3, 84kbps) &rarr; &#9319; 최종 (v0.3.4, RPi + LTE 4명)
+            </p>
+            <div class="space-y-4" id="compareChart"></div>
+            <div class="flex items-center gap-6 mt-4 text-xs font-mono">
+                <span class="flex items-center gap-2"><span class="w-3 h-3 rounded-sm bg-red-500 inline-block"></span> &#9312; 최초</span>
+                <span class="flex items-center gap-2"><span class="w-3 h-3 rounded-sm inline-block" style="background:#00F0FF"></span> &#9319; 최종</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Key Insights -->
+    <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-10">
+        <div class="bg-brand-surface rounded-xl border border-brand-rust/20 p-5 sm:p-6">
+            <h3 class="text-sm font-bold text-brand-rust mb-4 font-mono">이 세션에서 배운 것</h3>
+            <div class="space-y-4 text-sm text-gray-300 word-keep-all" id="insights"></div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-6 border-t border-white/5 text-center">
+        <div class="text-xs text-gray-600 font-mono">
+            &copy; 2026 0xLENS &mdash; &ldquo;관측이 품질을 떨어뜨리면 관측의 의미가 없다.&rdquo;
+        </div>
+    </footer>
+
+<script>
+// author: kodeholic (powered by Claude)
+// 0xLENS Quality Story — vanilla JS
+
+const GLOSSARY = {
+    available_bw:  { name: '가용 대역폭',    unit: 'kbps', desc: 'Chrome이 추정한 네트워크 대역폭. 이 안에서 audio+video를 나눠 씀' },
+    video_bitrate: { name: '영상 비트레이트', unit: 'kbps', desc: '실제 전송 중인 영상 데이터량. 높을수록 화질 좋음' },
+    jb_delay:      { name: '수신 버퍼 지연',  unit: 'ms',   desc: '수신 측에서 패킷 도착 편차를 흡수하기 위한 대기 시간. 낮을수록 실시간에 가까움' },
+    freeze:        { name: '영상 멈춤',       unit: '회',   desc: '디코딩할 프레임이 없어서 영상이 정지한 횟수' },
+    rr_relay:      { name: 'RR 릴레이',      unit: '건/3초', desc: '수신자의 품질 보고서를 송신자에게 전달한 횟수' },
+    rtx_hit:       { name: '패킷 복구율',     unit: '%',    desc: '손실 패킷 재전송 요청 시 서버 캐시에서 성공적으로 찾아 보낸 비율' },
+    quality_limit: { name: '인코더 제한',     unit: '',     desc: 'Chrome 인코더가 자유롭게 동작하는지. bandwidth=대역폭 부족, none=제한 없음' },
+    relay_avg:     { name: 'SFU 릴레이 시간', unit: 'ms',   desc: '서버가 패킷을 받아서 다른 참가자에게 보내기까지 걸리는 평균 시간' },
+};
+
+const STEPS = [
+    {
+        id: 1, title: '최초 상태', time: '12:07', env: '로컬 PC',
+        problem: '영상 비트레이트가 32kbps — 사실상 정지 화면 수준',
+        action: 'v0.3.3 기존 코드. 아무 조치 없음.',
+        rootCause: 'Chrome이 대역폭을 84kbps로 추정 → 비디오에 27kbps만 할당',
+        metrics: { available_bw:84, video_bitrate:32, jb_delay:47, freeze:3, rr_relay:0, rtx_hit:'N/A', quality_limit:'bandwidth', relay_avg:0.10 },
+        highlight: 'available_bw', verdict: 'FAIL', changed: [],
+    },
+    {
+        id: 2, title: 'RR 카운터 버그 수정', time: '12:40', env: '로컬 PC',
+        problem: 'rr_relay가 항상 0으로 표시됨',
+        action: 'RTCP plaintext에 & 0x7F 마스크를 잘못 적용한 버그 수정. 201 & 0x7F = 73 ≠ 201이라 RR을 못 세고 있었음.',
+        rootCause: '카운터만 고장. 실제 RR 릴레이는 원래 동작 중이었음.',
+        metrics: { available_bw:84, video_bitrate:32, jb_delay:37, freeze:0, rr_relay:8, rtx_hit:'N/A', quality_limit:'bandwidth', relay_avg:0.48 },
+        highlight: 'rr_relay', changed: ['rr_relay'], verdict: '카운터 수정됨, 화질은 그대로',
+    },
+    {
+        id: 3, title: 'REMB 2Mbps + TWCC 제거', time: '12:45', env: '로컬 PC',
+        problem: 'RR이 가도 available_bitrate가 84kbps에서 안 올라감',
+        action: '서버가 1초마다 "2Mbps까지 보내도 된다"는 REMB를 publisher에게 전송. 동시에 SDP에서 transport-wide-cc 확장을 제거하여 Chrome이 REMB 모드로 전환.',
+        rootCause: 'TWCC extmap을 선언하면 Chrome BWE가 TWCC 모드로 전환하여 REMB를 무시함. 서버가 TWCC feedback을 안 보내니 BWE가 초기 추정값(84kbps)에 고정.',
+        metrics: { available_bw:2000, video_bitrate:1520, jb_delay:84, freeze:0, rr_relay:8, rtx_hit:'N/A', quality_limit:'bandwidth', relay_avg:1.64 },
+        highlight: 'available_bw', changed: ['available_bw','video_bitrate'], verdict: '비트레이트 47배 상승! 하지만 로컬 PC 과부하 시작',
+    },
+    {
+        id: 4, title: 'REMB 500kbps로 안정화', time: '12:56', env: '로컬 PC',
+        problem: '2Mbps에서 로컬 PC가 과부하 → 패킷 손실 + freeze 발생',
+        action: 'REMB를 500kbps로 낮추어 로컬 테스트 환경에 맞춤.',
+        rootCause: '한 PC에서 인코딩×2 + 디코딩×2 + SFU = CPU 경합',
+        metrics: { available_bw:500, video_bitrate:470, jb_delay:44, freeze:0, rr_relay:26, rtx_hit:'N/A', quality_limit:'none', relay_avg:1.03 },
+        highlight: 'quality_limit', changed: ['quality_limit','jb_delay'], verdict: 'quality_limit=none 달성! 인코더 자유',
+    },
+    {
+        id: 5, title: 'JB delay delta 수정', time: '13:04', env: '로컬 PC',
+        problem: '시간이 지날수록 jb_delay가 계속 올라감 (47→170→323ms)',
+        action: 'SDK에서 jitterBufferDelay를 누적값 그대로 보내고 있었음. 3초 윈도우 delta로 계산하도록 수정.',
+        rootCause: 'WebRTC getStats()의 jitterBufferDelay는 세션 시작부터 누적값. delta를 안 쓰면 시간에 비례해서 올라감.',
+        metrics: { available_bw:500, video_bitrate:475, jb_delay:44, freeze:0, rr_relay:26, rtx_hit:'N/A', quality_limit:'none', relay_avg:1.03 },
+        highlight: 'jb_delay', changed: ['jb_delay'], verdict: 'JB delay 안정화 — 더 이상 가속 없음',
+    },
+    {
+        id: 6, title: '라즈베리파이 배포', time: '13:27', env: 'RPi + PC 3명',
+        problem: 'RTX 캐시 히트율 65% (224건 미스)',
+        action: '.env + PUBLIC_IP 설정으로 라즈베리파이 배포. 캐시는 아직 128슬롯.',
+        rootCause: '3명 fan-out=2로 패킷 처리량 증가 → 128슬롯이 빠르게 덮어쓰임 → NACK 도착 시 이미 캐시에서 밀려남.',
+        metrics: { available_bw:500, video_bitrate:472, jb_delay:32, freeze:1, rr_relay:49, rtx_hit:65, quality_limit:'none', relay_avg:0.17 },
+        highlight: 'rtx_hit', changed: ['rtx_hit','relay_avg'], verdict: 'SFU 성능 0.17ms — 라즈베리파이 훌륭. 캐시만 부족',
+    },
+    {
+        id: 7, title: 'RTP 캐시 512슬롯', time: '14:03', env: 'RPi + PC 3명',
+        problem: 'RTX 캐시 미스 224건',
+        action: 'RTP_CACHE_SIZE를 128 → 512로 확장 (~17초분). 메모리 비용 512KB/publisher로 무시 가능.',
+        rootCause: '128슬롯 = ~4초분. NACK 왕복이 4초를 넘으면 캐시에서 이미 밀려남.',
+        metrics: { available_bw:500, video_bitrate:483, jb_delay:23, freeze:1, rr_relay:53, rtx_hit:100, quality_limit:'none', relay_avg:0.19 },
+        highlight: 'rtx_hit', changed: ['rtx_hit'], verdict: 'RTX 히트율 100%! 패킷 복구 완벽',
+    },
+    {
+        id: 8, title: 'LTE 모바일 4명', time: '14:14', env: 'RPi + PC 2 + LTE 2',
+        problem: 'LTE 모바일에서 접속 테스트',
+        action: 'PUBLIC_IP 설정 + UDP 포트포워딩으로 LTE 단말이 공인 IP를 통해 SFU에 접속.',
+        rootCause: '이전에 LTE가 안 된 건 ICE candidate에 내부 IP가 들어가서 → PUBLIC_IP 설정으로 해결.',
+        metrics: { available_bw:500, video_bitrate:442, jb_delay:55, freeze:1, rr_relay:56, rtx_hit:100, quality_limit:'none', relay_avg:0.17 },
+        highlight: 'none', changed: [], verdict: '4명 동시 (PC+LTE) 안정 동작!',
+    },
+];
+
+const COMPARE = [
+    { name: '가용 대역폭 (kbps)',    before: 84,  after: 500, max: 600 },
+    { name: '영상 비트레이트 (kbps)', before: 32,  after: 442, max: 600 },
+    { name: '수신 버퍼 지연 (ms)',    before: 47,  after: 55,  max: 100, lowerBetter: true },
+    { name: '영상 멈춤 (회)',         before: 3,   after: 1,   max: 5,   lowerBetter: true },
+    { name: '패킷 복구율 (%)',        before: 0,   after: 100, max: 100 },
+    { name: 'RR 릴레이 (건/3초)',    before: 0,   after: 56,  max: 60 },
+];
+
+const INSIGHTS = [
+    '<b class="text-white">TWCC를 선언해놓고 피드백을 안 보내면 84kbps에 갇힌다.</b> Chrome은 TWCC 모드에서 REMB를 무시한다. 서버가 TWCC feedback을 생성하지 않으면 BWE가 초기 추정값에서 못 벗어난다.',
+    '<b class="text-white">관측 도구의 버그는 관측 불가능하다.</b> RR relay 카운터가 0이었는데, 실제로는 릴레이가 동작 중이었다. 관측 코드 자체도 검증 대상이다.',
+    '<b class="text-white">누적값과 delta의 차이는 시간이 지나야 드러난다.</b> jitterBufferDelay를 누적값으로 보내면 처음엔 정상으로 보이지만, 시간이 지날수록 올라간다.',
+    '<b class="text-white">스냅샷 한 장이면 근본 원인에 3분 만에 도달한다.</b> available_bitrate=84400 이 숫자 하나로 TWCC extmap 문제까지 추적. 로그 grep이나 Wireshark 없이.',
+];
+
+/* ── helpers ── */
+function metricColor(key, val) {
+    if (key === 'available_bw')  return val >= 500 ? '#34D399' : val > 100 ? '#FBBF24' : '#EF4444';
+    if (key === 'video_bitrate') return val >= 400 ? '#34D399' : val > 100 ? '#FBBF24' : '#EF4444';
+    if (key === 'jb_delay')      return val <= 50  ? '#34D399' : val <= 100 ? '#FBBF24' : '#EF4444';
+    if (key === 'freeze')        return val === 0  ? '#34D399' : val <= 2 ? '#FBBF24' : '#EF4444';
+    if (key === 'rr_relay')      return val > 0    ? '#34D399' : '#EF4444';
+    if (key === 'rtx_hit')       return val === 'N/A' ? '#6B7280' : val >= 80 ? '#34D399' : '#EF4444';
+    if (key === 'quality_limit') return val === 'none' ? '#34D399' : '#EF4444';
+    if (key === 'relay_avg')     return val < 1 ? '#34D399' : val < 5 ? '#FBBF24' : '#EF4444';
+    return '#9CA3AF';
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+/* ── glossary ── */
+function renderGlossary() {
+    document.getElementById('glossaryGrid').innerHTML = Object.entries(GLOSSARY).map(([, g]) =>
+        `<div class="flex gap-3 text-xs bg-white/5 rounded-lg px-3 py-2">
+            <span class="text-brand-cyan font-bold whitespace-nowrap min-w-[100px] font-mono">${esc(g.name)}</span>
+            <span class="text-gray-400 word-keep-all">${esc(g.desc)}</span>
+        </div>`
+    ).join('');
+}
+
+/* ── timeline ── */
+function renderTimeline() {
+    const el = document.getElementById('timeline');
+    el.innerHTML = STEPS.map((step, i) => {
+        const prev = i > 0 ? STEPS[i - 1] : null;
+        const isFail = step.verdict === 'FAIL';
+        const dotCls = isFail ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400';
+        const verdictCls = isFail
+            ? 'bg-red-500/10 border-red-500/30 text-red-400'
+            : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400';
+
+        // delta badges (collapsed)
+        let badges = '';
+        if (step.changed.length && prev) {
+            badges = step.changed.map(ck => {
+                const cur = step.metrics[ck], pv = prev.metrics[ck], g = GLOSSARY[ck];
+                if (pv === undefined || pv === cur) return '';
+                return `<span class="text-[10px] bg-white/5 border border-white/10 rounded px-1.5 py-0.5 font-mono hidden md:inline-block">
+                    <span class="text-gray-500">${esc(g.name)}</span>
+                    <span class="text-red-400">${pv}</span><span class="text-gray-600">&rarr;</span><span class="text-green-400">${cur}</span></span>`;
+            }).join('');
+        }
+
+        // metric grid
+        const metricHtml = Object.entries(step.metrics).map(([k, v]) => {
+            const g = GLOSSARY[k], color = metricColor(k, v);
+            const isHL = step.highlight === k, isCh = step.changed.includes(k);
+            const cls = isHL ? 'metric-highlight bg-brand-cyan/5' : isCh ? 'metric-changed bg-white/5' : 'bg-white/[0.03]';
+            const descLine = isHL ? `<div class="text-[10px] text-gray-500 mt-1">${esc(g.desc)}</div>` : '';
+            return `<div class="rounded-lg px-3 py-2 text-xs border border-white/10 ${cls}">
+                <div class="flex justify-between items-center mb-0.5">
+                    <span class="text-gray-400">${esc(g.name)}</span>
+                    <span class="font-mono font-bold" style="color:${color}">${v}${g.unit ? `<span class="text-gray-500 font-normal ml-0.5">${esc(g.unit)}</span>` : ''}</span>
+                </div>${descLine}</div>`;
+        }).join('');
+
+        return `
+        <div class="step-card mb-3 rounded-xl border border-white/10 bg-brand-surface/60 hover:border-white/20 transition-all cursor-pointer" data-idx="${i}">
+            <div class="step-header px-4 py-3 flex items-center justify-between">
+                <div class="flex items-center gap-3 min-w-0">
+                    <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${dotCls}">${step.id}</div>
+                    <div class="min-w-0">
+                        <div class="text-white font-medium text-sm">
+                            ${esc(step.title)}
+                            <span class="text-gray-500 font-normal ml-2 text-xs">${step.time}</span>
+                            <span class="text-gray-600 font-normal ml-2 text-xs">${esc(step.env)}</span>
+                        </div>
+                        <div class="text-gray-400 text-xs mt-0.5 truncate">${esc(step.problem)}</div>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 shrink-0 ml-2">
+                    ${badges}
+                    <svg class="step-chevron w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </div>
+            </div>
+            <div class="step-detail">
+                <div class="px-4 pb-4 border-t border-white/5 pt-3 space-y-3">
+                    <div class="bg-white/[0.03] rounded-lg p-3">
+                        <div class="text-[10px] text-gray-500 uppercase tracking-wider mb-1 font-mono">근본 원인</div>
+                        <div class="text-sm text-gray-300 word-keep-all">${esc(step.rootCause)}</div>
+                    </div>
+                    <div class="bg-brand-cyan/5 border border-brand-cyan/20 rounded-lg p-3">
+                        <div class="text-[10px] text-brand-cyan uppercase tracking-wider mb-1 font-mono">조치</div>
+                        <div class="text-sm text-gray-300 word-keep-all">${esc(step.action)}</div>
+                    </div>
+                    <div>
+                        <div class="text-[10px] text-gray-500 uppercase tracking-wider mb-2 font-mono">측정값</div>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">${metricHtml}</div>
+                    </div>
+                    <div class="rounded-lg border px-3 py-2 text-sm font-medium ${verdictCls}">
+                        &rarr; ${esc(step.verdict)}
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+
+    // accordion
+    el.addEventListener('click', e => {
+        const card = e.target.closest('.step-card');
+        if (!card) return;
+        const wasOpen = card.classList.contains('open');
+        el.querySelectorAll('.step-card.open').forEach(c => c.classList.remove('open'));
+        if (!wasOpen) card.classList.add('open');
+    });
+}
+
+/* ── compare chart ── */
+function renderCompare() {
+    const el = document.getElementById('compareChart');
+    el.innerHTML = COMPARE.map(item => {
+        const bPct = Math.min((item.before / item.max) * 100, 100);
+        const aPct = Math.min((item.after / item.max) * 100, 100);
+        return `
+        <div>
+            <div class="flex items-center justify-between mb-1">
+                <span class="text-xs text-gray-400 font-mono w-48 shrink-0">${esc(item.name)}</span>
+                <div class="flex items-center gap-3 text-xs font-mono">
+                    <span class="text-red-400 w-10 text-right">${item.before}</span>
+                    <span class="text-gray-600">&rarr;</span>
+                    <span style="color:#00F0FF" class="w-10 text-right">${item.after}</span>
+                </div>
+            </div>
+            <div class="flex gap-1.5">
+                <div class="bar-track h-3 flex-1"><div class="bar-fill bg-red-500/70" data-w="${bPct}"></div></div>
+                <div class="bar-track h-3 flex-1"><div class="bar-fill" style="background:#00F0FF" data-w="${aPct}"></div></div>
+            </div>
+        </div>`;
+    }).join('');
+
+    // animate
+    requestAnimationFrame(() => {
+        el.querySelectorAll('.bar-fill').forEach(b => {
+            b.style.width = '0%';
+            requestAnimationFrame(() => { b.style.width = b.dataset.w + '%'; });
+        });
+    });
+}
+
+/* ── insights ── */
+function renderInsights() {
+    document.getElementById('insights').innerHTML = INSIGHTS.map((txt, i) =>
+        `<div class="flex gap-3">
+            <span class="text-brand-rust font-bold shrink-0 font-mono">${i + 1}.</span>
+            <span class="word-keep-all">${txt}</span>
+        </div>`
+    ).join('');
+}
+
+/* ── glossary toggle ── */
+document.getElementById('glossaryToggle').addEventListener('click', () => {
+    const p = document.getElementById('glossaryPanel');
+    p.classList.toggle('hidden');
+    document.getElementById('glossaryToggle').textContent =
+        p.classList.contains('hidden') ? '용어가 어렵다면? (클릭)' : '용어 설명 닫기';
+});
+
+/* ── init ── */
+renderGlossary();
+renderTimeline();
+renderCompare();
+renderInsights();
+</script>
+
+</body>
+</html>
