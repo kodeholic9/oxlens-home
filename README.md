@@ -1,38 +1,34 @@
 # Insight Lens
 
-WebRTC 기반 실시간 미디어 시스템 프론트엔드 (light-livechat SFU 클라이언트 SDK + UI).
+WebRTC 기반 실시간 미디어 시스템 프론트엔드 (oxlens-sfu-server SFU 클라이언트 SDK + UI).
 
 ## 프로젝트 구조
 
 ```
-insight-lens/
-├── common/                    SDK 코어 모듈
-│   ├── constants.js           공용 상수 (OP, CONN, MUTE, FLOOR)
-│   ├── livechat-sdk.js        SDK Facade (Public API + Mute FSM)
-│   ├── signaling.js           WS 시그널링 + Floor Control FSM
-│   ├── media-session.js       Publish/Subscribe 2PC + WebRTC
-│   ├── telemetry.js           Stats 수집 + 서버 전송
-│   ├── sdp-builder.js         Fake remote SDP 조립
-│   └── sdp-builder.test.mjs   SDP 유닛 테스트
-├── livechat-client/
-│   ├── index.html             클라이언트 UI
-│   └── app.js                 UI 로직 (SDK 이벤트 구독, 비즈니스 로직 Zero)
-├── livechat-admin/
-│   ├── index.html             0xLENS 어드민 대시보드
-│   └── app.js                 실시간 텔레메트리 모니터링 + 스냅샷 내보내기
-├── livechat-bench/
-│   └── src/                   sfu-bench (Rust, fan-out 벤치마크)
-├── docs/
-│   ├── telemetry.html         Telemetry Spec 페이지
-│   └── benchmark.html         Benchmark Report 페이지
-├── index.html                 0xLENS 랜딩 페이지
+oxlens-home/ (GitHub: oxlens-home.git)
+├── common/                SDK 코어 모듈 (v0.6.0+)
+│   ├── constants.js       공용 상수 (OP, CONN, MUTE, FLOOR)
+│   ├── livechat-sdk.js    SDK Facade (Public API + Mute FSM)
+│   ├── signaling.js       WS 시그널링 + Floor Control FSM
+│   ├── media-session.js   Publish/Subscribe 2PC + WebRTC
+│   ├── telemetry.js       Stats 수집 + 서버 전송
+│   ├── sdp-builder.js     Fake remote SDP 조립
+│   └── sdp-builder.test.mjs
+├── client/                [구 livechat-client] 서비스 사용자용 UI
+│   ├── index.html         PTT/Conference 클라이언트 UI
+│   └── app.js             UI 로직 (SDK 이벤트 구독 기반)
+├── admin/                 [구 livechat-admin] 관리자 대시보드
+│   ├── index.html         실시간 텔레메트리 모니터링
+│   └── app.js             스냅샷 내보내기 및 관제
+├── index.html             0xLENS 통합 랜딩 페이지 (Portal)
+├── deploy-oxlens.sh       셸 기반 자동 배포 스크립트 (Patch/Status)
 └── README.md
 ```
 
 ## 서버
 
-- **light-livechat** — Rust + Tokio + Axum 기반 SFU 서버
-- 경로: `D:\X.WORK\GitHub\repository\light-livechat\`
+- **oxlens-sfu=server** — Rust + Tokio + Axum 기반 SFU 서버
+- 경로: `D:\X.WORK\GitHub\repository\oxlens-sfu-server\`
 
 ## SDK 아키텍처 (v0.6.0)
 
@@ -47,10 +43,10 @@ LiveChatSDK (Facade)
 
 ### Mute 제어 이원화
 
-| 모드 | audio 소유 | video 소유 | 방식 |
-|------|-----------|-----------|------|
-| Conference | Conference Mute FSM | Conference Mute FSM | 3-state (UNMUTED → SOFT → HARD) |
-| PTT | Floor (SDK 자동) | 사용자 toggle 허용 | 선언적 계산 (`_applyPttMediaState`) |
+| 모드       | audio 소유          | video 소유          | 방식                                |
+| ---------- | ------------------- | ------------------- | ----------------------------------- |
+| Conference | Conference Mute FSM | Conference Mute FSM | 3-state (UNMUTED → SOFT → HARD)     |
+| PTT        | Floor (SDK 자동)    | 사용자 toggle 허용  | 선언적 계산 (`_applyPttMediaState`) |
 
 **PTT 선언적 모델:**
 
@@ -77,35 +73,31 @@ Server → Client: { op, pid, d }                    (이벤트)
 
 ### SDK 이벤트
 
-| Event | 설명 |
-|-------|------|
-| `conn:state` | 연결 상태 변경 |
-| `room:joined` | 방 입장 완료 |
-| `room:left` | 방 퇴장 |
-| `room:event` | 참가자 입/퇴장 |
-| `media:local` | 로컬 스트림 획득 |
-| `media:track` | 리모트 트랙 수신 |
-| `media:ice` | ICE 연결 상태 |
-| `floor:state` | Floor FSM 전이 (idle/requesting/talking/listening) |
-| `floor:granted` | 발화권 획득 |
-| `floor:idle` | 채널 비어있음 |
-| `floor:revoke` | 서버 강제 회수 |
-| `mute:changed` | Mute 상태 변경 |
-| `ptt:escalated` | PTT hard mute 에스컬레이션 |
-| `track:state` | 리모트 mute/unmute 브로드캐스트 |
-| `error` | 에러 |
+| Event           | 설명                                               |
+| --------------- | -------------------------------------------------- |
+| `conn:state`    | 연결 상태 변경                                     |
+| `room:joined`   | 방 입장 완료                                       |
+| `room:left`     | 방 퇴장                                            |
+| `room:event`    | 참가자 입/퇴장                                     |
+| `media:local`   | 로컬 스트림 획득                                   |
+| `media:track`   | 리모트 트랙 수신                                   |
+| `media:ice`     | ICE 연결 상태                                      |
+| `floor:state`   | Floor FSM 전이 (idle/requesting/talking/listening) |
+| `floor:granted` | 발화권 획득                                        |
+| `floor:idle`    | 채널 비어있음                                      |
+| `floor:revoke`  | 서버 강제 회수                                     |
+| `mute:changed`  | Mute 상태 변경                                     |
+| `ptt:escalated` | PTT hard mute 에스컬레이션                         |
+| `track:state`   | 리모트 mute/unmute 브로드캐스트                    |
+| `error`         | 에러                                               |
 
 ## 실행
 
 ```bash
-# light-livechat 서버 실행
-cd light-livechat
+# oxlens-sfu-server 서버 실행
+cd oxlens-sfu-server
 RUST_LOG=debug cargo run
 
-# 클라이언트 (정적 파일 서빙)
-cd insight-lens
-python -m http.server 8080
-# 브라우저에서 http://localhost:8080/livechat-client/ 접속
 ```
 
 ## 테스트 (2탭)
