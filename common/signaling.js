@@ -25,18 +25,26 @@ export class Signaling {
 
     // --- Floor Control (MCPTT/MBCP 4-state) ---
     this._floorState = FLOOR.IDLE;
-    this._speaker = null;          // 현재 발화자 user_id (null = nobody)
-    this._pendingCancel = false;   // Zello race defense: REQUESTING 중 PTT 뗌
+    this._speaker = null; // 현재 발화자 user_id (null = nobody)
+    this._pendingCancel = false; // Zello race defense: REQUESTING 중 PTT 뗌
     this._floorPingTimer = null;
     this._roomMode = "conference";
   }
 
   // ── Getters ──
 
-  get connState() { return this._connState; }
-  get floorState() { return this._floorState; }
-  get speaker() { return this._speaker; }
-  get roomMode() { return this._roomMode; }
+  get connState() {
+    return this._connState;
+  }
+  get floorState() {
+    return this._floorState;
+  }
+  get speaker() {
+    return this._speaker;
+  }
+  get roomMode() {
+    return this._roomMode;
+  }
 
   // ── WebSocket 연결 ──
 
@@ -63,7 +71,7 @@ export class Signaling {
     this._ws.onmessage = (e) => {
       try {
         const pkt = JSON.parse(e.data);
-        console.log("→", pkt);
+        // console.log("→", pkt);
         this._handlePacket(pkt);
       } catch (err) {
         console.error(`[SIG] packet parse error: ${err.message}`);
@@ -94,7 +102,7 @@ export class Signaling {
   send(op, data) {
     if (!this._ws || this._ws.readyState !== WebSocket.OPEN) return;
     const pkt = { op, pid: this._nextPid(), d: data || {} };
-    console.log("←", pkt);
+    // console.log("←", pkt);
     this._ws.send(JSON.stringify(pkt));
   }
 
@@ -104,7 +112,9 @@ export class Signaling {
     this._ws.send(JSON.stringify(pkt));
   }
 
-  _nextPid() { return ++this._pid; }
+  _nextPid() {
+    return ++this._pid;
+  }
 
   // ── Heartbeat ──
 
@@ -141,7 +151,10 @@ export class Signaling {
     switch (op) {
       case OP.HELLO:
         this._startHeartbeat(d.heartbeat_interval);
-        this.send(OP.IDENTIFY, { token: this.sdk.token, user_id: this.sdk.userId });
+        this.send(OP.IDENTIFY, {
+          token: this.sdk.token,
+          user_id: this.sdk.userId,
+        });
         break;
 
       case OP.ROOM_EVENT:
@@ -265,7 +278,11 @@ export class Signaling {
   floorRequest() {
     const roomId = this.sdk._roomId;
     if (!roomId || this._roomMode !== "ptt") return;
-    if (this._floorState === FLOOR.TALKING || this._floorState === FLOOR.REQUESTING) return;
+    if (
+      this._floorState === FLOOR.TALKING ||
+      this._floorState === FLOOR.REQUESTING
+    )
+      return;
 
     this._pendingCancel = false;
     this._setFloorState(FLOOR.REQUESTING);
@@ -308,7 +325,9 @@ export class Signaling {
 
     // Zello race defense: Granted 도착했지만 이미 사용자가 PTT 뗌
     if (this._pendingCancel) {
-      console.log("[SIG] floor:granted arrived but pendingCancel=true → auto-release");
+      console.log(
+        "[SIG] floor:granted arrived but pendingCancel=true → auto-release",
+      );
       this._pendingCancel = false;
       const roomId = this.sdk._roomId;
       if (roomId) this.send(OP.FLOOR_RELEASE, { room_id: roomId });
@@ -334,7 +353,10 @@ export class Signaling {
   _onFloorTaken(d) {
     this._speaker = d.speaker;
     // 내가 TALKING 중이면 유지 (내 Granted 직후 자기 Taken 수신)
-    if (this._floorState !== FLOOR.TALKING && this._floorState !== FLOOR.REQUESTING) {
+    if (
+      this._floorState !== FLOOR.TALKING &&
+      this._floorState !== FLOOR.REQUESTING
+    ) {
       this._setFloorState(FLOOR.LISTENING);
     }
     this.sdk.emit("floor:taken", d);
