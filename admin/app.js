@@ -23,6 +23,10 @@ const MAX_HISTORY = 100;
 const telemetryHistory = new Map();
 const sfuHistory = [];
 
+// 이벤트 타임라인 버퍼 (user_id → 최근 이벤트 배열)
+const EVENT_HISTORY_MAX = 50;
+const eventHistory = new Map();
+
 // 접속 의도 (ON/OFF 토글)
 let wantConnected = false;
 let isConnected = false;
@@ -63,7 +67,6 @@ function connectAdmin() {
     isConnected = false;
     adminWs = null;
     setConnUI('offline');
-    // ON 상태면 자동 재접속
     if (wantConnected) {
       scheduleReconnect();
     }
@@ -114,11 +117,9 @@ function clearReconnectTimer() {
 
 function toggleConnection() {
   if (wantConnected) {
-    // OFF
     wantConnected = false;
     disconnectAdmin();
   } else {
-    // ON
     wantConnected = true;
     connectAdmin();
   }
@@ -146,7 +147,7 @@ function setConnUI(state) {
       iconOff.classList.remove('hidden');
       btn.title = '접속 취소';
       break;
-    default: // offline
+    default:
       dot.className = 'w-2 h-2 rounded-full bg-gray-600';
       status.textContent = wantConnected ? '재접속 대기' : 'OFFLINE';
       iconOn.classList.remove('hidden');
@@ -199,6 +200,14 @@ function handleClientTelemetry(msg) {
     const buf = telemetryHistory.get(user_id);
     buf.push({ ts: Date.now(), publish: data.publish, subscribe: data.subscribe, codecs: data.codecs });
     while (buf.length > MAX_HISTORY) buf.shift();
+
+    // 이벤트 타임라인 누적
+    if (data.events && data.events.length > 0) {
+      if (!eventHistory.has(user_id)) eventHistory.set(user_id, []);
+      const evBuf = eventHistory.get(user_id);
+      data.events.forEach(ev => evBuf.push(ev));
+      while (evBuf.length > EVENT_HISTORY_MAX) evBuf.shift();
+    }
 
     renderOverview();
     if (selectedUser === user_id) renderDetail();
@@ -397,6 +406,37 @@ function renderDetail() {
     tel.publish.outbound.forEach(ob => {
       const actualBps = ob.bitrate != null ? `${(ob.bitrate / 1000).toFixed(0)} kbps` : '—';
       const targetBps = ob.targetBitrate ? `${(ob.targetBitrate / 1000).toFixed(0)}` : '—';
+
+      let frameGapHtml = '';
+      if (ob.kind === 'video' && ob.framesEncoded != null && ob.framesSent != null) {
+        const gap = ob.framesEncoded - ob.framesSent;
+        const gapCls = gap > 5 ? 'text-red-400' : gap > 0 ? 'text-yellow-400' : 'text-gray-500';
+        frameGapHtml = `<span class="${gapCls}">enc-sent gap:${gap}</span>`;
+      }
+
+      let hugeHtml = '';
+      if (ob.kind === 'video' && ob.hugeFramesSent != null && ob.hugeFramesSent > 0) {
+        hugeHtml = `<span class="text-yellow-400">huge:${ob.hugeFramesSent}</span>`;
+      }
+
+      let qldHtml = '';
+      if (ob.kind === 'video' && ob.qualityLimitationDurations) {
+        const qld = ob.qualityLimitationDurations;
+        const parts = [];
+        if (qld.bandwidth > 0) parts.push(`<span class="text-yellow-400">bw:${qld.bandwidth.toFixed(1)}s</span>`);
+        if (qld.cpu > 0) parts.push(`<span class="text-red-400">cpu:${qld.cpu.toFixed(1)}s</span>`);
+        if (parts.length > 0) {
+          qldHtml = `<span class="text-gray-500">qld:</span>${parts.join(' ')}`;
+        }
+      }
+
+      let encTimeHtml = '';
+      if (ob.kind === 'video' && ob.totalEncodeTime != null && ob.framesEncoded > 0) {
+        const avgMs = (ob.totalEncodeTime / ob.framesEncoded * 1000).toFixed(1);
+        const cls = parseFloat(avgMs) > 30 ? 'text-red-400' : parseFloat(avgMs) > 16 ? 'text-yellow-400' : 'text-gray-500';
+        encTimeHtml = `<span class="${cls}">enc:${avgMs}ms/f</span>`;
+      }
+
       html += `
         <div class="px-2 py-1.5 bg-brand-dark rounded text-[11px]">
           <div class="flex justify-between text-gray-300">
@@ -407,6 +447,10 @@ function renderDetail() {
             <span>pli:${ob.pliCount}</span><span>retx:${ob.retransmittedPacketsSent}</span>
             ${ob.framesPerSecond != null ? `<span>${ob.framesPerSecond} fps</span>` : ''}
           </div>
+          ${(frameGapHtml || hugeHtml || qldHtml || encTimeHtml) ? `
+          <div class="flex gap-3 mt-1">
+            ${frameGapHtml}${hugeHtml}${encTimeHtml}${qldHtml}
+          </div>` : ''}
         </div>`;
     });
     if (tel.publish.network) {
@@ -422,7 +466,6 @@ function renderDetail() {
     html += '<div class="space-y-1 mb-4">';
     tel.subscribe.inbound.forEach(ib => {
       const jitterMs = ib.jitter != null ? (ib.jitter * 1000).toFixed(1) : '—';
-      // SDK가 delta ms로 보내므로 직접 사용
       const jbDelay = ib.jitterBufferDelay != null ? ib.jitterBufferDelay : '—';
       const srcLabel = ib.sourceUser ? `←${ib.sourceUser}` : '';
       const subBps = ib.bitrate != null ? `${(ib.bitrate / 1000).toFixed(0)} kbps` : '—';
@@ -444,7 +487,141 @@ function renderDetail() {
     html += '</div>';
   }
 
+  // --- 구간별 손실 Cross-Reference (pub→sub 매칭) ---
+  html += renderLossCrossRef(selectedUser, tel);
+
+  // --- 이벤트 타임라인 ---
+  html += renderEventTimeline(selectedUser);
+
   panel.innerHTML = html || '<div class="text-gray-500 text-center py-4">데이터 없음</div>';
+}
+
+/** 구간별 손실 cross-reference: pub.packetsSent vs sub.packetsReceived 매칭 */
+function renderLossCrossRef(userId, tel) {
+  // 현재 사용자의 pub 데이터와, 다른 사용자의 sub에서 sourceUser가 이 사용자인 inbound를 매칭
+  if (!tel.publish?.outbound) return '';
+  const pubByKind = {};
+  tel.publish.outbound.forEach(ob => { pubByKind[ob.kind] = ob; });
+
+  const matches = [];
+  latestTelemetry.forEach((otherTel, otherUid) => {
+    if (otherUid === userId) return;
+    (otherTel.subscribe?.inbound || []).forEach(ib => {
+      if (ib.sourceUser === userId && pubByKind[ib.kind]) {
+        const pub = pubByKind[ib.kind];
+        const subTotal = (ib.packetsReceived || 0) + (ib.packetsLost || 0);
+        // 추정 누적 손실: pub 전송 - sub 수신(+lost) = SFU 이전 구간에서 사라진 패킷
+        // 단, 누적값이라 타이밍 차이로 음수 가능 → 0 clamp
+        const transitLoss = Math.max(0, (pub.packetsSent || 0) - subTotal);
+        const subLoss = ib.packetsLost || 0;
+        matches.push({
+          subscriber: otherUid, kind: ib.kind,
+          pubSent: pub.packetsSent || 0,
+          subReceived: ib.packetsReceived || 0,
+          subLost: subLoss,
+          transitLoss,
+        });
+      }
+    });
+  });
+
+  if (matches.length === 0) return '';
+  let h = '<div class="text-[10px] text-gray-500 uppercase tracking-wider font-mono mb-1.5 mt-2">구간별 손실 추정</div>';
+  h += '<div class="space-y-0.5 mb-4">';
+  matches.forEach(m => {
+    const transitCls = m.transitLoss > 0 ? 'text-yellow-400' : 'text-gray-500';
+    const subLossCls = m.subLost > 0 ? 'text-red-400' : 'text-gray-500';
+    h += `<div class="px-2 py-1 bg-brand-dark rounded text-[11px] flex justify-between">
+      <span class="text-gray-400">→${m.subscriber} ${m.kind}</span>
+      <span><span class="${transitCls}">A→B:~${m.transitLoss}</span> <span class="${subLossCls}">B→C:${m.subLost}</span> <span class="text-gray-500">sent:${m.pubSent}</span></span>
+    </div>`;
+  });
+  h += '</div>';
+  return h;
+}
+
+/** 이벤트 타임라인 렌더 */
+function renderEventTimeline(userId) {
+  const events = eventHistory.get(userId);
+  if (!events || events.length === 0) return '';
+
+  let h = '<div class="text-[10px] text-gray-500 uppercase tracking-wider font-mono mb-1.5 mt-2">이벤트 타임라인</div>';
+  h += '<div class="space-y-0.5 mb-4 max-h-48 overflow-y-auto">';
+
+  // 최신순으로 표시
+  const sorted = [...events].reverse();
+  sorted.forEach(ev => {
+    const time = new Date(ev.ts).toLocaleTimeString('ko-KR', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const icon = eventIcon(ev.type);
+    const cls = eventColorClass(ev.type);
+    const desc = eventDescription(ev);
+    h += `<div class="px-2 py-0.5 bg-brand-dark rounded text-[10px] flex items-center gap-2">
+      <span class="text-gray-600 font-mono w-16 shrink-0">${time}</span>
+      <span>${icon}</span>
+      <span class="${cls}">${desc}</span>
+    </div>`;
+  });
+  h += '</div>';
+  return h;
+}
+
+function eventIcon(type) {
+  switch (type) {
+    case 'quality_limit_change': return '⚡';
+    case 'encoder_impl_change':  return '🔧';
+    case 'decoder_impl_change':  return '🔧';
+    case 'pli_burst':            return '🔑';
+    case 'nack_burst':           return '📦';
+    case 'bitrate_drop':         return '📉';
+    case 'fps_zero':             return '⏸';
+    case 'video_freeze':         return '🧊';
+    case 'loss_burst':           return '💀';
+    case 'frames_dropped_burst': return '🗑';
+    default:                     return '•';
+  }
+}
+
+function eventColorClass(type) {
+  switch (type) {
+    case 'quality_limit_change': return 'text-yellow-400';
+    case 'encoder_impl_change':  return 'text-yellow-400';
+    case 'decoder_impl_change':  return 'text-yellow-400';
+    case 'pli_burst':            return 'text-yellow-400';
+    case 'nack_burst':           return 'text-yellow-400';
+    case 'bitrate_drop':         return 'text-red-400';
+    case 'fps_zero':             return 'text-red-400';
+    case 'video_freeze':         return 'text-red-400';
+    case 'loss_burst':           return 'text-red-400';
+    case 'frames_dropped_burst': return 'text-red-400';
+    default:                     return 'text-gray-400';
+  }
+}
+
+function eventDescription(ev) {
+  switch (ev.type) {
+    case 'quality_limit_change':
+      return `${ev.pc}:${ev.kind} quality ${ev.from}→${ev.to}`;
+    case 'encoder_impl_change':
+      return `${ev.pc}:${ev.kind} encoder ${ev.from}→${ev.to}`;
+    case 'decoder_impl_change':
+      return `${ev.pc}:${ev.kind} decoder ${ev.from}→${ev.to}`;
+    case 'pli_burst':
+      return `${ev.pc}:${ev.kind} PLI burst ×${ev.count}`;
+    case 'nack_burst':
+      return `${ev.pc}:${ev.kind} NACK burst ×${ev.count}`;
+    case 'bitrate_drop':
+      return `${ev.pc}:${ev.kind} bitrate ${Math.round(ev.from/1000)}k→${Math.round(ev.to/1000)}k`;
+    case 'fps_zero':
+      return `${ev.pc}:${ev.kind} FPS ${ev.prevFps}→0`;
+    case 'video_freeze':
+      return `${ev.pc}:${ev.kind} freeze ×${ev.count}`;
+    case 'loss_burst':
+      return `${ev.pc}:${ev.kind} loss burst ×${ev.count}`;
+    case 'frames_dropped_burst':
+      return `${ev.pc}:${ev.kind} frames dropped ×${ev.count}`;
+    default:
+      return `${ev.type}`;
+  }
 }
 
 // ============================================================
@@ -540,7 +717,6 @@ function renderServerMetrics() {
   // --- PTT (v0.5.1) ---
   if (m.ptt) {
     const p = m.ptt;
-    const hasPtt = (p.rtp_gated||0) + (p.rtp_rewritten||0) + (p.floor_granted||0) > 0;
     html += '<div class="text-[10px] text-gray-500 uppercase tracking-wider font-mono mt-3 mb-1">PTT (3s window)</div>';
     html += '<div class="grid grid-cols-2 gap-1 text-[11px] mb-3">';
     [['gated', p.rtp_gated], ['rewritten', p.rtp_rewritten],
@@ -581,7 +757,6 @@ function renderServerMetrics() {
     html += `<div class="flex justify-between px-2 py-1 bg-brand-dark rounded"><span class="text-gray-400">global queue</span><span class="${rt.global_queue > 50 ? 'text-yellow-400' : 'text-gray-300'}">${rt.global_queue}</span></div>`;
     html += `<div class="flex justify-between px-2 py-1 bg-brand-dark rounded"><span class="text-gray-400">budget yield</span><span class="${rt.budget_yield > 100 ? 'text-yellow-400' : 'text-gray-300'}">${rt.budget_yield}</span></div>`;
     html += `<div class="flex justify-between px-2 py-1 bg-brand-dark rounded"><span class="text-gray-400">io ready</span><span class="text-gray-300">${rt.io_ready}</span></div>`;
-    // per-worker 상세
     if (rt.workers && rt.workers.length > 0) {
       html += '<div class="text-[10px] text-gray-600 font-mono mt-1 mb-0.5 px-1">workers</div>';
       rt.workers.forEach((w, i) => {
@@ -631,7 +806,6 @@ function buildContractChecks() {
   let jbOk = true;
   latestTelemetry.forEach(tel => {
     (tel.subscribe?.inbound||[]).forEach(ib => {
-      // SDK가 delta ms로 보내므로 직접 비교
       if (ib.jitterBufferDelay != null && ib.jitterBufferDelay > 100) jbOk = false;
     });
   });
@@ -650,7 +824,6 @@ function buildContractChecks() {
     checks.push({ name: 'bwe_feedback', pass: twccSent > 0, detail: twccSent > 0 ? `TWCC ${twccSent}/3s` : 'no TWCC sent' });
   }
 
-  // PTT track health
   let trackOk = true, trackDetail = 'all live';
   let pcOk = true, pcDetail = 'connected';
   let tabWarn = false;
@@ -669,10 +842,20 @@ function buildContractChecks() {
   checks.push({ name: 'pc_connection', pass: pcOk, detail: pcDetail });
   if (tabWarn) checks.push({ name: 'tab_visibility', pass: true, warn: true, detail: 'tab hidden' });
 
-  // v0.3.9: Tokio runtime busy ratio
   const busyRatio = m?.tokio_runtime ? parseFloat(m.tokio_runtime.busy_ratio) : 0;
   const busyPct = (busyRatio * 100).toFixed(1);
   checks.push({ name: 'runtime_busy', pass: busyRatio < 0.85, warn: busyRatio >= 0.85 && busyRatio < 0.95, detail: `${busyPct}%${busyRatio >= 0.95 ? ' SATURATED' : busyRatio >= 0.85 ? ' HIGH' : ''}` });
+
+  let encGapOk = true, encGapDetail = 'no gap';
+  latestTelemetry.forEach(tel => {
+    (tel.publish?.outbound || []).forEach(ob => {
+      if (ob.kind === 'video' && ob.framesEncoded != null && ob.framesSent != null) {
+        const gap = ob.framesEncoded - ob.framesSent;
+        if (gap > 5) { encGapOk = false; encGapDetail = `gap=${gap}`; }
+      }
+    });
+  });
+  checks.push({ name: 'encoder_bottleneck', pass: encGapOk, detail: encGapDetail });
 
   return checks;
 }
@@ -697,7 +880,7 @@ function showContractCheck() {
 function buildSnapshot() {
   const ts = new Date().toISOString();
   const L = [];
-  L.push('=== LIGHT-SFU TELEMETRY SNAPSHOT ===');
+  L.push('=== OXLENS-SFU TELEMETRY SNAPSHOT ===');
   L.push(`timestamp: ${ts}`);
   L.push('');
 
@@ -724,6 +907,15 @@ function buildSnapshot() {
       const tgt = ob.targetBitrate ? Math.round(ob.targetBitrate) : '?';
       const fpsStr = ob.framesPerSecond != null ? ` fps=${ob.framesPerSecond}` : '';
       L.push(`[${uid}:${ob.kind}] pkts=${ob.packetsSent} bytes=${ob.bytesSent} nack=${ob.nackCount} pli=${ob.pliCount} bitrate=${bps}kbps target=${tgt} retx=${ob.retransmittedPacketsSent}${fpsStr}`);
+      if (ob.kind === 'video') {
+        const encSent = ob.framesSent ?? '?';
+        const encEnc = ob.framesEncoded ?? '?';
+        const huge = ob.hugeFramesSent ?? 0;
+        const encTime = (ob.totalEncodeTime != null && ob.framesEncoded > 0) ? (ob.totalEncodeTime / ob.framesEncoded * 1000).toFixed(1) + 'ms/f' : '?';
+        const qld = ob.qualityLimitationDurations;
+        const qldStr = qld ? `bw=${qld.bandwidth?.toFixed(1)||0}s cpu=${qld.cpu?.toFixed(1)||0}s` : 'N/A';
+        L.push(`[${uid}:video:enc] encoded=${encEnc} sent=${encSent} gap=${encEnc!=='?'&&encSent!=='?'?(encEnc-encSent):'?'} huge=${huge} enc_time=${encTime} qld_delta=[${qldStr}]`);
+      }
     });
   });
   L.push('');
@@ -744,6 +936,35 @@ function buildSnapshot() {
   latestTelemetry.forEach((tel, uid) => {
     if (tel.publish?.network) L.push(`[${uid}:pub] rtt=${tel.publish.network.rtt??'?'}ms available_bitrate=${tel.publish.network.availableBitrate??'?'}`);
     if (tel.subscribe?.network) L.push(`[${uid}:sub] rtt=${tel.subscribe.network.rtt??'?'}ms`);
+  });
+  L.push('');
+
+  // --- LOSS CROSS-REFERENCE ---
+  L.push('--- LOSS CROSS-REFERENCE ---');
+  latestTelemetry.forEach((tel, uid) => {
+    const pubByKind = {};
+    (tel.publish?.outbound || []).forEach(ob => { pubByKind[ob.kind] = ob; });
+    latestTelemetry.forEach((otherTel, otherUid) => {
+      if (otherUid === uid) return;
+      (otherTel.subscribe?.inbound || []).forEach(ib => {
+        if (ib.sourceUser === uid && pubByKind[ib.kind]) {
+          const pub = pubByKind[ib.kind];
+          const subTotal = (ib.packetsReceived || 0) + (ib.packetsLost || 0);
+          const transitLoss = Math.max(0, (pub.packetsSent || 0) - subTotal);
+          L.push(`[${uid}→${otherUid}:${ib.kind}] pub_sent=${pub.packetsSent} sub_recv=${ib.packetsReceived} sub_lost=${ib.packetsLost} transit_loss≈${transitLoss}`);
+        }
+      });
+    });
+  });
+  L.push('');
+
+  // --- EVENT TIMELINE ---
+  L.push('--- EVENT TIMELINE ---');
+  eventHistory.forEach((events, uid) => {
+    events.forEach(ev => {
+      const time = new Date(ev.ts).toISOString();
+      L.push(`[${uid}] ${time} ${ev.type} ${eventDescription(ev)}`);
+    });
   });
   L.push('');
 
@@ -829,6 +1050,7 @@ $('srv-url').addEventListener('change', () => {
   latestTelemetry.clear();
   sdpTelemetry.clear();
   telemetryHistory.clear();
+  eventHistory.clear();
   sfuHistory.length = 0;
   selectedRoom = null;
   selectedUser = null;
@@ -838,7 +1060,7 @@ $('srv-url').addEventListener('change', () => {
 });
 
 // ============================================================
-//  11. 좌우 리사이즈 (col-splitter) — 왼쪽 기준 고정, 우측 확장
+//  11. 좌우 리사이즈 (col-splitter)
 // ============================================================
 {
   const splitter = $('col-splitter');
@@ -916,7 +1138,6 @@ $('srv-url').addEventListener('change', () => {
 // ============================================================
 setConnUI('offline');
 
-// location.origin 기반 WS 주소 자동 선택
 (function autoSelectServer() {
   const sel = $('srv-url');
   const host = location.hostname;

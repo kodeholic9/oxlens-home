@@ -5,16 +5,24 @@
 //   - 구간 S-1: SDP 상태 1회 보고
 //   - 구간 S-2: encoder/decoder 코덱 상태
 //   - 구간 A: publish outbound-rtp + candidate-pair (3초 주기)
+//     - framesSent / hugeFramesSent / qualityLimitationDurations delta 포함
 //   - 구간 C: subscribe inbound-rtp (3초 주기)
 //   - delta bitrate / jitterBuffer delta 계산
+//   - 이벤트 타임라인: 상태 전이 감지 + 링버퍼 기록
 
 import { OP } from "./constants.js";
+
+const EVENT_LOG_MAX = 50;   // 링버퍼 최대 크기
 
 export class Telemetry {
   constructor(sdk) {
     this.sdk = sdk;
     this._statsTimer = null;
     this._prevStats = null;
+    // 이벤트 타임라인 — 상태 전이 감지용
+    this._eventLog = [];        // 링버퍼 (최근 EVENT_LOG_MAX개)
+    this._watchState = {};      // 이전 감시 상태값 (SSRC별)
+    this._pendingEvents = [];   // 현재 tick에서 감지된 이벤트 (전송 후 클리어)
   }
 
   // ============================================================
@@ -68,22 +76,198 @@ export class Telemetry {
   }
 
   // ============================================================
+  //  이벤트 타임라인 — 상태 전이 감지
+  // ============================================================
+
+  /** 이벤트를 링버퍼에 기록 + 현재 tick pending에 추가 */
+  _pushEvent(event, ts) {
+    const entry = { ts: ts || Date.now(), ...event };
+    this._eventLog.push(entry);
+    while (this._eventLog.length > EVENT_LOG_MAX) this._eventLog.shift();
+    this._pendingEvents.push(entry);
+  }
+
+  /** publish outbound-rtp 상태 전이 감지 */
+  _detectPublishEvents(stats, ts) {
+    stats.forEach((r) => {
+      if (r.type !== "outbound-rtp") return;
+      const key = `pub_${r.ssrc}`;
+      const prev = this._watchState[key] || {};
+
+      // 1) qualityLimitationReason 변화
+      const curReason = r.qualityLimitationReason || "none";
+      if (prev.qualityLimitReason && curReason !== prev.qualityLimitReason) {
+        this._pushEvent({
+          type: "quality_limit_change",
+          pc: "pub", kind: r.kind, ssrc: r.ssrc,
+          from: prev.qualityLimitReason, to: curReason,
+        }, ts);
+      }
+
+      // 2) encoderImplementation 변화 (HW↔SW fallback)
+      const curImpl = r.encoderImplementation || null;
+      if (prev.encoderImpl && curImpl && curImpl !== prev.encoderImpl) {
+        this._pushEvent({
+          type: "encoder_impl_change",
+          pc: "pub", kind: r.kind, ssrc: r.ssrc,
+          from: prev.encoderImpl, to: curImpl,
+        }, ts);
+      }
+
+      // 3) PLI 급증 (이번 3초에 3개 이상)
+      const curPli = r.pliCount || 0;
+      const deltaPli = curPli - (prev.pliCount || 0);
+      if (deltaPli >= 3) {
+        this._pushEvent({
+          type: "pli_burst",
+          pc: "pub", kind: r.kind, ssrc: r.ssrc,
+          count: deltaPli,
+        }, ts);
+      }
+
+      // 4) NACK 급증 (이번 3초에 10개 이상)
+      const curNack = r.nackCount || 0;
+      const deltaNack = curNack - (prev.nackCount || 0);
+      if (deltaNack >= 10) {
+        this._pushEvent({
+          type: "nack_burst",
+          pc: "pub", kind: r.kind, ssrc: r.ssrc,
+          count: deltaNack,
+        }, ts);
+      }
+
+      // 5) bitrate 급락 (이전 targetBitrate 대비 50% 이하로 떨어짐)
+      const curTarget = r.targetBitrate || 0;
+      if (prev.targetBitrate && curTarget > 0 && curTarget < prev.targetBitrate * 0.5) {
+        this._pushEvent({
+          type: "bitrate_drop",
+          pc: "pub", kind: r.kind, ssrc: r.ssrc,
+          from: prev.targetBitrate, to: curTarget,
+        }, ts);
+      }
+
+      // 6) framesPerSecond 급락 (0이 되면)
+      const curFps = r.framesPerSecond || 0;
+      if (r.kind === "video" && prev.fps > 0 && curFps === 0) {
+        this._pushEvent({
+          type: "fps_zero",
+          pc: "pub", kind: r.kind, ssrc: r.ssrc,
+          prevFps: prev.fps,
+        }, ts);
+      }
+
+      // 상태 저장
+      this._watchState[key] = {
+        qualityLimitReason: curReason,
+        encoderImpl: curImpl,
+        pliCount: curPli,
+        nackCount: curNack,
+        targetBitrate: curTarget,
+        fps: curFps,
+      };
+    });
+  }
+
+  /** subscribe inbound-rtp 상태 전이 감지 */
+  _detectSubscribeEvents(stats, ts) {
+    stats.forEach((r) => {
+      if (r.type !== "inbound-rtp") return;
+      const key = `sub_${r.ssrc}`;
+      const prev = this._watchState[key] || {};
+
+      // 1) freeze 발생 (누적값 증가)
+      const curFreeze = r.freezeCount || 0;
+      if (prev.freezeCount != null && curFreeze > prev.freezeCount) {
+        this._pushEvent({
+          type: "video_freeze",
+          pc: "sub", kind: r.kind, ssrc: r.ssrc,
+          count: curFreeze - prev.freezeCount,
+          totalDuration: r.totalFreezesDuration || 0,
+        }, ts);
+      }
+
+      // 2) 손실 급증 (이번 3초에 20패킷 이상 새로 lost)
+      const curLost = r.packetsLost || 0;
+      const deltaLost = curLost - (prev.packetsLost || 0);
+      if (deltaLost >= 20) {
+        this._pushEvent({
+          type: "loss_burst",
+          pc: "sub", kind: r.kind, ssrc: r.ssrc,
+          count: deltaLost,
+        }, ts);
+      }
+
+      // 3) framesDropped 급증 (이번 3초에 5 이상)
+      const curDropped = r.framesDropped || 0;
+      const deltaDropped = curDropped - (prev.framesDropped || 0);
+      if (deltaDropped >= 5) {
+        this._pushEvent({
+          type: "frames_dropped_burst",
+          pc: "sub", kind: r.kind, ssrc: r.ssrc,
+          count: deltaDropped,
+        }, ts);
+      }
+
+      // 4) decoderImplementation 변화
+      const curDecImpl = r.decoderImplementation || null;
+      if (prev.decoderImpl && curDecImpl && curDecImpl !== prev.decoderImpl) {
+        this._pushEvent({
+          type: "decoder_impl_change",
+          pc: "sub", kind: r.kind, ssrc: r.ssrc,
+          from: prev.decoderImpl, to: curDecImpl,
+        }, ts);
+      }
+
+      // 5) FPS 0으로 떨어짐 (수신 중단)
+      const curFps = r.framesPerSecond || 0;
+      if (r.kind === "video" && prev.fps > 0 && curFps === 0) {
+        this._pushEvent({
+          type: "fps_zero",
+          pc: "sub", kind: r.kind, ssrc: r.ssrc,
+          prevFps: prev.fps,
+        }, ts);
+      }
+
+      this._watchState[key] = {
+        freezeCount: curFreeze,
+        packetsLost: curLost,
+        framesDropped: curDropped,
+        decoderImpl: curDecImpl,
+        fps: curFps,
+      };
+    });
+  }
+
+  // ============================================================
   //  3초 주기 stats monitor
   // ============================================================
 
   start() {
     this.stop();
-    this._prevStats = { pub: new Map(), sub: new Map(), jb: new Map() };
+    this._prevStats = {
+      pub: new Map(),
+      sub: new Map(),
+      jb: new Map(),
+      qld: new Map(),   // qualityLimitationDurations 이전값 (SSRC별)
+    };
+    this._eventLog = [];
+    this._watchState = {};
+    this._pendingEvents = [];
     let tick = 0;
 
     this._statsTimer = setInterval(async () => {
       const media = this.sdk.media;
       const telemetry = { section: "stats", tick };
+      const ts = Date.now();
+
+      // 이벤트 감지 (pending 클리어)
+      this._pendingEvents = [];
 
       // 구간 A: publish PC
       if (media.pubPc) {
         try {
           const stats = await media.pubPc.getStats();
+          this._detectPublishEvents(stats, ts);
           telemetry.publish = this._collectPublishStats(stats);
         } catch (_) { /* pc closed */ }
       }
@@ -92,6 +276,7 @@ export class Telemetry {
       if (media.subPc) {
         try {
           const stats = await media.subPc.getStats();
+          this._detectSubscribeEvents(stats, ts);
           telemetry.subscribe = this._collectSubscribeStats(stats);
         } catch (_) { /* pc closed */ }
       }
@@ -101,6 +286,11 @@ export class Telemetry {
 
       // 구간 P: PTT 진단 (트랙/인코더/PC 건강성)
       telemetry.ptt = this._collectPttDiagnostics();
+
+      // 이벤트 타임라인 (이번 tick에서 감지된 이벤트)
+      if (this._pendingEvents.length > 0) {
+        telemetry.events = this._pendingEvents;
+      }
 
       this.sdk.sig.send(OP.TELEMETRY, telemetry);
       tick++;
@@ -113,6 +303,11 @@ export class Telemetry {
       this._statsTimer = null;
     }
     this._prevStats = null;
+  }
+
+  /** 전체 이벤트 로그 반환 (스냅샷/디버그용) */
+  getEventLog() {
+    return [...this._eventLog];
   }
 
   // ============================================================
@@ -130,6 +325,23 @@ export class Telemetry {
         const bitrate = Math.round((deltaBytes * 8) / 3);
         if (this._prevStats) this._prevStats.pub.set(prevKey, r.bytesSent || 0);
 
+        // --- qualityLimitationDurations 3초 delta ---
+        let qldDelta = null;
+        const curQld = r.qualityLimitationDurations || null;
+        if (curQld && this._prevStats) {
+          const qldKey = `qld_${r.ssrc}`;
+          const prevQld = this._prevStats.qld.get(qldKey);
+          if (prevQld) {
+            qldDelta = {};
+            for (const reason of ["none", "bandwidth", "cpu", "other"]) {
+              const cur = curQld[reason] || 0;
+              const prev = prevQld[reason] || 0;
+              qldDelta[reason] = Math.round((cur - prev) * 1000) / 1000;
+            }
+          }
+          this._prevStats.qld.set(qldKey, { ...curQld });
+        }
+
         result.outbound.push({
           kind: r.kind, ssrc: r.ssrc,
           packetsSent: r.packetsSent, bytesSent: r.bytesSent, bitrate,
@@ -137,9 +349,13 @@ export class Telemetry {
           targetBitrate: r.targetBitrate || null,
           retransmittedPacketsSent: r.retransmittedPacketsSent || 0,
           framesEncoded: r.framesEncoded || null,
+          framesSent: r.framesSent || null,
+          hugeFramesSent: r.hugeFramesSent || null,
           keyFramesEncoded: r.keyFramesEncoded || null,
           framesPerSecond: r.framesPerSecond || null,
+          totalEncodeTime: r.totalEncodeTime || null,
           qualityLimitationReason: r.qualityLimitationReason || null,
+          qualityLimitationDurations: qldDelta,
           encoderImplementation: r.encoderImplementation || null,
           powerEfficientEncoder: r.powerEfficientEncoder || null,
         });
