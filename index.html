@@ -188,6 +188,11 @@
                 class="block px-4 py-2.5 text-gray-400 hover:text-white hover:bg-white/5 transition text-xs"
                 >Benchmark Report</a
               >
+              <a
+                href="./docs/rx-tx-pipeline.html"
+                class="block px-4 py-2.5 text-gray-400 hover:text-white hover:bg-white/5 transition text-xs"
+                >Rx/Tx Pipeline</a
+              >
             </div>
           </div>
         </nav>
@@ -283,6 +288,11 @@
           href="./docs/benchmark.html"
           class="text-gray-400 hover:text-white transition pl-4 text-base"
           >└ Benchmark Report</a
+        >
+        <a
+          href="./docs/rx-tx-pipeline.html"
+          class="text-gray-400 hover:text-white transition pl-4 text-base"
+          >└ Rx/Tx Pipeline</a
         >
         <div class="pt-4 border-t border-white/10">
           <button
@@ -425,8 +435,8 @@
             이렇게 만들었습니다.
           </h2>
           <p class="text-gray-400 text-sm sm:text-base word-keep-all">
-            한 포트에서 ICE, DTLS, SRTP를 모두 처리하고, 참가자 조회는
-            O(1)입니다. 여기에 텔레메트리와 AI 진단을 얹었습니다.
+            한 포트에서 ICE, DTLS, SRTP를 모두 처리하고, DashMap 3중 인덱스로
+            참가자를 O(1) 조회합니다. 여기에 텔레메트리와 AI 진단을 얹었습니다.
           </p>
         </div>
 
@@ -451,6 +461,11 @@
               <code class="text-brand-rust/80">scp</code> 하나로 배포합니다.
               Docker도, JVM도, node_modules도 없습니다.
             </p>
+            <div class="mt-4 pt-4 border-t border-white/5 text-xs text-gray-500 leading-relaxed word-keep-all space-y-1.5">
+              <div><span class="text-brand-rust font-bold font-mono">Ingress</span> — <code class="text-gray-400">SO_REUSEPORT</code> × 4 워커로 수신+복호화를 커널 레벨 분산</div>
+              <div><span class="text-brand-rust font-bold font-mono">Egress</span> — Subscriber별 전용 task가 암호화+송신을 독점. Mutex 경합 제로</div>
+              <div><span class="text-gray-400">→ 30인 conference loss <b class="text-green-400">0.000%</b>, latency <b class="text-brand-cyan">15ms</b></span></div>
+            </div>
           </div>
 
           <!-- 02. 4단계 지표 파이프라인 -->
@@ -463,13 +478,21 @@
               02
             </div>
             <h3 class="text-lg sm:text-xl font-bold mb-3 font-mono text-white">
-              4-Stage Telemetry
+              5-Stage Telemetry
             </h3>
             <p class="text-gray-400 text-sm leading-relaxed word-keep-all">
-              SDP 협상(S), 인코더(A), SFU 릴레이(B), Jitter Buffer(C). 4개
-              구간을 3초 주기로 수집하되, 미디어 처리 성능에는 영향을 주지
-              않습니다. 관측이 품질을 떨어뜨리면 관측의 의미가 없으니까요.
+              SDP 상태(S), 인코더(A), SFU 릴레이(B), Jitter Buffer(C),
+              PTT 진단(P). 5개 구간을 3초 주기로 수집하되, 미디어 처리
+              성능에는 영향을 주지 않습니다. 관측이 품질을 떨어뜨리면
+              관측의 의미가 없으니까요.
             </p>
+            <div class="mt-4 pt-4 border-t border-white/5 text-xs text-gray-500 leading-relaxed word-keep-all space-y-1.5">
+              <div><span class="text-white font-bold font-mono">S</span> — Fake SDP 상태 + 코덱 정보 1회 보고. 협상 없이 즉시 연결</div>
+              <div><span class="text-white font-bold font-mono">A</span> — 인코더 fps, bitrate, quality_limit, hugeFrames delta</div>
+              <div><span class="text-white font-bold font-mono">B</span> — SFU 릴레이 avg/p95/max latency + NACK/RTX 히트율</div>
+              <div><span class="text-white font-bold font-mono">C</span> — 수신 측 jitter, JB delay delta, freeze, concealment</div>
+              <div><span class="text-white font-bold font-mono">P</span> — PTT 트랙/인코더/PC 건강성 진단</div>
+            </div>
           </div>
 
           <!-- 03. WebRTC 계약 검증 -->
@@ -491,6 +514,11 @@
               NACK → RTX 히트율, PLI → 키프레임 전달, JB 지연 — 숫자가 O/X를
               말합니다.
             </p>
+            <div class="mt-4 pt-4 border-t border-white/5 text-xs text-gray-500 leading-relaxed word-keep-all space-y-1.5">
+              <div><span class="text-brand-cyan font-bold font-mono">PASS</span> — NACK → RTX 100% 히트, PLI → 키프레임 전달 확인</div>
+              <div><span class="text-yellow-400 font-bold font-mono">WARN</span> — bitrate 적응 지연, JB delay 임계 초과</div>
+              <div><span class="text-red-400 font-bold font-mono">FAIL</span> — TWCC 미구현, 패킷 손실율 초과 — 즉시 대응 필요</div>
+            </div>
           </div>
         </div>
       </section>

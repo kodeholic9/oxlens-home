@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="ko">
+<!--
+  @author: kodeholic (powered by Claude)
+  @description: 0xLENS Rx/Tx Pipeline Design — Client-Server Hybrid Media Architecture
+-->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>0xLENS — Rx/Tx Pipeline Architecture</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Pretendard', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        brand: { rust: '#E45B25', cyan: '#00F0FF', dark: '#0B0F19', surface: '#151B2B' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #0B0F19; color: #E2E8F0; }
+        .bg-grid {
+            background-size: 40px 40px;
+            background-image: linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+                              linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
+        }
+        .text-gradient { background: linear-gradient(to right, #E45B25, #FF8A50); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .text-gradient-green { background: linear-gradient(to right, #22c55e, #4ade80); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #0B0F19; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        .word-keep-all { word-break: keep-all; }
+        .stage-detail { max-height: 0; overflow: hidden; transition: max-height 0.4s ease; }
+        .stage-card.open .stage-detail { max-height: 600px; }
+        .stage-card.open .stage-chevron { transform: rotate(180deg); }
+        .stage-card.open { border-color: rgba(0,240,255,0.25); }
+        .stage-chevron { transition: transform 0.25s ease; }
+        .bar { transition: width 1.2s cubic-bezier(0.22, 1, 0.36, 1); }
+        .bar-enter { width: 0 !important; }
+        .status-proven { background: rgba(34,197,94,0.15); border-color: rgba(34,197,94,0.3); color: #4ade80; }
+        .status-conditional { background: rgba(251,191,36,0.15); border-color: rgba(251,191,36,0.3); color: #fbbf24; }
+    </style>
+</head>
+<body class="bg-grid min-h-screen flex flex-col font-sans antialiased">
+
+    <!-- GNB -->
+    <header class="fixed w-full top-0 z-50 bg-brand-dark/80 backdrop-blur-md border-b border-white/10">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex justify-between items-center">
+            <a href="../index.html" class="flex items-baseline shrink-0">
+                <span class="font-mono text-2xl font-extrabold tracking-tight">
+                    <span class="text-brand-rust">0x</span><span class="text-white">LENS</span>
+                </span>
+                <span class="ml-3 text-xs font-mono text-gray-500">/ docs / rx-tx-pipeline</span>
+            </a>
+            <nav class="hidden md:flex items-center space-x-6 text-sm font-mono text-gray-400">
+                <a href="../index.html" class="hover:text-white transition">Home</a>
+                <a href="./benchmark.html" class="hover:text-white transition">Benchmark</a>
+                <a href="./telemetry.html" class="hover:text-white transition">Telemetry</a>
+                <a href="#" class="text-brand-rust">Pipeline</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="flex-1 mt-16">
+
+        <!-- HERO -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pt-12 sm:pt-20 pb-12">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs font-mono text-brand-cyan mb-6">
+                <span class="w-2 h-2 rounded-full bg-brand-cyan animate-pulse"></span>
+                Architecture Design Document · Client-Server Hybrid
+            </div>
+            <h1 class="text-3xl sm:text-5xl font-extrabold text-white leading-tight mb-4 tracking-tight">
+                Target: Audio <span class="text-gradient">0ms</span>,<br>
+                Battery Waste <span class="text-gradient-green">Zero</span>.
+            </h1>
+            <p class="text-gray-400 text-base sm:text-lg leading-relaxed max-w-2xl word-keep-all">
+                모바일 PTT 환경에서 즉시 발화, 최소 배터리 소모, 카메라 콜드 스타트 극복을
+                동시에 목표로 하는 클라이언트-서버 하이브리드 미디어 파이프라인 설계.
+                아래 수치는 아키텍처 설계 목표이며, 실측 검증은 구현 완료 후 수행 예정입니다.
+            </p>
+        </section>
+
+        <!-- 설계 목표 3-Grid -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div class="bg-brand-surface border border-brand-rust/30 rounded-xl p-5 sm:p-6 text-center">
+                    <div class="text-3xl sm:text-4xl font-mono font-extrabold text-brand-rust">~0<span class="text-lg">ms</span></div>
+                    <div class="text-xs sm:text-sm text-gray-400 mt-1">First Audio Latency</div>
+                    <div class="text-[10px] text-gray-500 mt-2 word-keep-all">설계 목표 — 실측 예정</div>
+                </div>
+                <div class="bg-brand-surface border border-green-500/30 rounded-xl p-5 sm:p-6 text-center">
+                    <div class="text-3xl sm:text-4xl font-mono font-extrabold text-green-400">3<span class="text-lg">-Stage</span></div>
+                    <div class="text-xs sm:text-sm text-gray-400 mt-1">Adaptive Power Profile</div>
+                    <div class="text-[10px] text-gray-500 mt-2 word-keep-all">설계 목표 — 미사용 시간에 비례한 자원 회수</div>
+                </div>
+                <div class="bg-brand-surface border border-brand-cyan/30 rounded-xl p-5 sm:p-6 text-center">
+                    <div class="text-3xl sm:text-4xl font-mono font-extrabold text-brand-cyan">Client<span class="text-lg">-driven</span></div>
+                    <div class="text-xs sm:text-sm text-gray-400 mt-1">Readiness Protocol</div>
+                    <div class="text-[10px] text-gray-500 mt-2 word-keep-all">서버 추측 없는 미디어 시작</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION: Rx Pipeline -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16 border-t border-white/10 pt-12">
+            <h2 class="text-xl sm:text-2xl font-bold mb-2 font-mono text-white">Rx Pipeline — 수신 경로</h2>
+            <p class="text-gray-400 text-sm mb-8 word-keep-all">
+                대기 상태에서도 오디오 디코더를 즉시 재생 가능한 상태로 유지하여,
+                발화자 전환 시 끊김 없는 오디오 연속성을 보장합니다.
+            </p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="bg-brand-surface border border-brand-rust/20 rounded-xl p-6">
+                    <div class="flex items-center gap-2 mb-3">
+                        <span class="w-2 h-2 rounded-full bg-brand-rust"></span>
+                        <h3 class="font-mono text-brand-rust font-bold text-sm">Audio Decoder Warm-keeping</h3>
+                    </div>
+                    <p class="text-gray-400 text-sm leading-relaxed word-keep-all mb-4">
+                        미디어 엔진의 오디오 디코더는 입력이 없으면 절전 모드로 전환됩니다.
+                        이 상태에서 실제 음성이 도착하면 디코더 웜업에 수십 ms가 소요되어
+                        첫 음절이 잘리는 현상이 발생합니다.
+                    </p>
+                    <div class="bg-white/[0.03] rounded-lg p-3 text-xs font-mono text-gray-300 space-y-2">
+                        <div class="flex items-start gap-2">
+                            <span class="text-brand-rust font-bold shrink-0">문제</span>
+                            <span class="word-keep-all">디코더 절전 → 복귀 지연 (모드 전환 비용)</span>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <span class="text-green-400 font-bold shrink-0">해결</span>
+                            <span class="word-keep-all">대기 중 최소 비용의 무음 프레임을 로컬 주입하여 디코더를 "깨어있는" 상태로 유지</span>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <span class="text-brand-cyan font-bold shrink-0">기대</span>
+                            <span class="word-keep-all">첫 음성 지연 최소화 (목표 ~0ms), 배터리 영향 무시 가능</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-brand-surface border border-brand-cyan/20 rounded-xl p-6">
+                    <div class="flex items-center gap-2 mb-3">
+                        <span class="w-2 h-2 rounded-full bg-brand-cyan"></span>
+                        <h3 class="font-mono text-brand-cyan font-bold text-sm">Seamless Stream Continuity</h3>
+                    </div>
+                    <p class="text-gray-400 text-sm leading-relaxed word-keep-all mb-4">
+                        발화자가 전환되면 새로운 미디어 스트림이 시작됩니다.
+                        이때 디코더가 유지하던 시퀀스와 새 스트림의 시퀀스 사이에 불연속이 발생하면
+                        디코더가 이를 대규모 패킷 손실로 오인합니다.
+                    </p>
+                    <div class="bg-white/[0.03] rounded-lg p-3 text-xs font-mono text-gray-300 space-y-2">
+                        <div class="flex items-start gap-2">
+                            <span class="text-brand-rust font-bold shrink-0">문제</span>
+                            <span class="word-keep-all">스트림 전환 시 시퀀스 불연속 → 디코더 오동작</span>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <span class="text-green-400 font-bold shrink-0">해결</span>
+                            <span class="word-keep-all">미디어 엔진의 공식 확장 인터페이스를 활용한 무손실 패킷 보정 레이어 — SFU 서버의 검증된 로직을 클라이언트로 이식</span>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <span class="text-brand-cyan font-bold shrink-0">결과</span>
+                            <span class="word-keep-all">발화자 전환 시 끊김 없는 연속 재생</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-6 bg-white/[0.02] border border-white/5 rounded-xl p-4 text-xs text-gray-500 font-mono word-keep-all">
+                <span class="text-gray-400 font-bold">Video Rx</span> — 비디오는 패킷 레벨 조작을 배제합니다.
+                키프레임 확보는 아래 Client-driven Readiness 프로토콜에서 처리합니다.
+            </div>
+        </section>
+
+        <!-- SECTION: Tx FSM -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16 border-t border-white/10 pt-12">
+            <h2 class="text-xl sm:text-2xl font-bold mb-2 font-mono text-white">Tx Pipeline — Adaptive Power Management</h2>
+            <p class="text-gray-400 text-sm mb-8 word-keep-all">
+                미사용 시간에 비례하여 3단계로 자원을 회수합니다.
+                각 단계는 복구 시간과 배터리 절감의 트레이드오프를 명확히 정의합니다.
+            </p>
+            <div class="bg-brand-surface border border-white/10 rounded-xl p-5 mb-6 overflow-x-auto">
+                <div class="flex items-center gap-0 min-w-[500px]">
+                    <div class="flex-[1] bg-green-500/15 border border-green-500/30 rounded-l-lg px-4 py-3 text-center">
+                        <div class="text-green-400 font-mono font-bold text-sm">Stage 1</div>
+                        <div class="text-[10px] text-gray-400 mt-1">0 ~ 1분</div>
+                        <div class="text-xs text-green-400 font-mono font-bold mt-1">0ms 복구</div>
+                    </div>
+                    <div class="w-6 text-center text-gray-600 text-xs shrink-0">→</div>
+                    <div class="flex-[1.5] bg-yellow-500/15 border border-yellow-500/30 px-4 py-3 text-center">
+                        <div class="text-yellow-400 font-mono font-bold text-sm">Stage 2</div>
+                        <div class="text-[10px] text-gray-400 mt-1">1 ~ 10분</div>
+                        <div class="text-xs text-yellow-400 font-mono font-bold mt-1">300ms+ 복구</div>
+                    </div>
+                    <div class="w-6 text-center text-gray-600 text-xs shrink-0">→</div>
+                    <div class="flex-[2] bg-brand-rust/15 border border-brand-rust/30 rounded-r-lg px-4 py-3 text-center">
+                        <div class="text-brand-rust font-mono font-bold text-sm">Stage 3</div>
+                        <div class="text-[10px] text-gray-400 mt-1">10분+</div>
+                        <div class="text-xs text-brand-rust font-mono font-bold mt-1">1~2초 복구</div>
+                    </div>
+                </div>
+            </div>
+            <div id="stageAccordion" class="space-y-3">
+                <div class="stage-card rounded-xl border border-white/10 bg-brand-surface/60 hover:border-white/20 transition-all cursor-pointer" data-stage="1">
+                    <div class="stage-header px-5 py-4 flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold bg-green-500/20 text-green-400 shrink-0">S1</div>
+                            <div>
+                                <div class="text-white font-medium text-sm">Soft-Mute — 즉시 복구 대기</div>
+                                <div class="text-gray-500 text-xs mt-0.5">네트워크 전송만 중단, 미디어 엔진 완전 유지</div>
+                            </div>
+                        </div>
+                        <svg class="stage-chevron w-5 h-5 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                    </div>
+                    <div class="stage-detail">
+                        <div class="px-5 pb-5 border-t border-white/5 pt-4 space-y-3">
+                            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                <div class="bg-white/[0.03] rounded-lg p-3 text-center"><div class="text-green-400 font-mono font-bold text-lg">0<span class="text-xs">ms</span></div><div class="text-[10px] text-gray-500">복구 시간</div></div>
+                                <div class="bg-white/[0.03] rounded-lg p-3 text-center"><div class="text-green-400 font-mono font-bold text-lg">0<span class="text-xs">bytes</span></div><div class="text-[10px] text-gray-500">네트워크 전송</div></div>
+                                <div class="bg-white/[0.03] rounded-lg p-3 text-center"><div class="text-yellow-400 font-mono font-bold text-lg">ON</div><div class="text-[10px] text-gray-500">하드웨어 상태</div></div>
+                                <div class="bg-white/[0.03] rounded-lg p-3 text-center"><div class="text-green-400 font-mono font-bold text-lg">유지</div><div class="text-[10px] text-gray-500">암호화 세션</div></div>
+                            </div>
+                            <p class="text-gray-400 text-sm leading-relaxed word-keep-all">미디어 엔진의 표준 API를 사용하여 네트워크 전송만 비활성화합니다. 카메라·마이크 하드웨어, 암호화 컨텍스트, 연결 상태 모두 유지되므로 발언 버튼 한 번으로 즉시 복구됩니다.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="stage-card rounded-xl border border-white/10 bg-brand-surface/60 hover:border-white/20 transition-all cursor-pointer" data-stage="2">
+                    <div class="stage-header px-5 py-4 flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold bg-yellow-500/20 text-yellow-400 shrink-0">S2</div>
+                            <div>
+                                <div class="text-white font-medium text-sm">Hard-Mute — 배터리 보호 모드</div>
+                                <div class="text-gray-500 text-xs mt-0.5">하드웨어 자원 반납, 연결 상태는 보존</div>
+                            </div>
+                        </div>
+                        <svg class="stage-chevron w-5 h-5 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                    </div>
+                    <div class="stage-detail">
+                        <div class="px-5 pb-5 border-t border-white/5 pt-4 space-y-3">
+                            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                <div class="bg-white/[0.03] rounded-lg p-3 text-center"><div class="text-yellow-400 font-mono font-bold text-lg">300<span class="text-xs">ms+</span></div><div class="text-[10px] text-gray-500">복구 시간</div></div>
+                                <div class="bg-white/[0.03] rounded-lg p-3 text-center"><div class="text-green-400 font-mono font-bold text-lg">0<span class="text-xs">bytes</span></div><div class="text-[10px] text-gray-500">네트워크 전송</div></div>
+                                <div class="bg-white/[0.03] rounded-lg p-3 text-center"><div class="text-green-400 font-mono font-bold text-lg">OFF</div><div class="text-[10px] text-gray-500">하드웨어 상태</div></div>
+                                <div class="bg-white/[0.03] rounded-lg p-3 text-center"><div class="text-green-400 font-mono font-bold text-lg">유지</div><div class="text-[10px] text-gray-500">암호화 세션</div></div>
+                            </div>
+                            <p class="text-gray-400 text-sm leading-relaxed word-keep-all">카메라·마이크 하드웨어를 해제하여 배터리와 발열을 보호합니다. 복구 시 하드웨어 재시작이 필요하여 약 300ms 지연이 발생하지만, 1분 이상 미사용자에게는 충분히 허용 가능한 수준입니다.</p>
+                            <div class="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3 text-xs text-yellow-300 word-keep-all"><span class="font-bold">서버 연동 필수</span> — 진입 시 서버에 비디오 중단 시그널을 전송하여 수신자 UI를 placeholder로 전환합니다. 누락 시 상대방 화면에 마지막 프레임이 정지됩니다.</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="stage-card rounded-xl border border-white/10 bg-brand-surface/60 hover:border-white/20 transition-all cursor-pointer" data-stage="3">
+                    <div class="stage-header px-5 py-4 flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold bg-brand-rust/20 text-brand-rust shrink-0">S3</div>
+                            <div>
+                                <div class="text-white font-medium text-sm">Deep Sleep — 최소 유지 모드</div>
+                                <div class="text-gray-500 text-xs mt-0.5">연결 유지 비용을 극단적으로 절감</div>
+                            </div>
+                        </div>
+                        <svg class="stage-chevron w-5 h-5 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                    </div>
+                    <div class="stage-detail">
+                        <div class="px-5 pb-5 border-t border-white/5 pt-4 space-y-3">
+                            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                <div class="bg-white/[0.03] rounded-lg p-3 text-center"><div class="text-brand-rust font-mono font-bold text-lg">1~2<span class="text-xs">초</span></div><div class="text-[10px] text-gray-500">복구 시간</div></div>
+                                <div class="bg-white/[0.03] rounded-lg p-3 text-center"><div class="text-green-400 font-mono font-bold text-lg">최소</div><div class="text-[10px] text-gray-500">Keep-alive만</div></div>
+                                <div class="bg-white/[0.03] rounded-lg p-3 text-center"><div class="text-green-400 font-mono font-bold text-lg">OFF</div><div class="text-[10px] text-gray-500">하드웨어 상태</div></div>
+                                <div class="bg-white/[0.03] rounded-lg p-3 text-center"><div class="text-yellow-400 font-mono font-bold text-lg">보존</div><div class="text-[10px] text-gray-500">암호화 컨텍스트</div></div>
+                            </div>
+                            <p class="text-gray-400 text-sm leading-relaxed word-keep-all">연결 유지 신호 주기를 극단적으로 늘려 모뎀 웨이크업을 최소화합니다. 미디어 엔진 자체는 내리지 않습니다 — 암호화 키와 인증서가 메모리에서 소실되면 전체 보안 핸드셰이크를 재수행해야 하기 때문입니다.</p>
+                            <div class="bg-brand-rust/10 border border-brand-rust/20 rounded-lg p-3 text-xs text-brand-rust word-keep-all"><span class="font-bold">NAT 매핑 소실 가능</span> — 장주기 유지 시 네트워크 경로가 만료될 수 있습니다. 이 경우 연결 재협상이 필요하며, 10분+ 미사용자에게 1~2초 복구는 허용 가능한 수준입니다.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION: NAT Traversal Optimization -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16 border-t border-white/10 pt-12">
+            <h2 class="text-xl sm:text-2xl font-bold mb-2 font-mono text-white">NAT Traversal Optimization</h2>
+            <p class="text-gray-400 text-sm mb-8 word-keep-all">
+                미디어 미전송 상태에서도 연결 유지 신호가 주기적으로 모뎀을 깨웁니다.
+                FSM 단계별로 신호 주기를 동적 조정하여 배터리 소모를 최소화합니다.
+            </p>
+            <div class="space-y-3" id="iceBars"></div>
+            <div class="mt-6 bg-white/[0.02] border border-white/5 rounded-xl p-4 text-xs text-gray-500 font-mono word-keep-all">
+                <span class="text-yellow-400 font-bold">실측 필수</span> — 국내 주요 통신사(SKT / KT / LGU+)의 LTE / 5G 환경별
+                NAT 타임아웃은 20~60초로 편차가 큽니다. 연결 유지 주기는 실측 데이터 기반으로 튜닝합니다.
+            </div>
+        </section>
+
+        <!-- SECTION: Client-driven Readiness -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16 border-t border-white/10 pt-12">
+            <h2 class="text-xl sm:text-2xl font-bold mb-2 font-mono text-white">Client-driven Readiness Protocol</h2>
+            <p class="text-gray-400 text-sm mb-8 word-keep-all">
+                카메라 콜드 스타트를 극복하기 위해, 서버가 임의 타이밍에 키프레임을 요청하는 대신
+                클라이언트가 준비 완료를 선언하는 주도적 프로토콜을 사용합니다.
+            </p>
+            <div class="bg-brand-surface border border-white/10 rounded-xl p-6 overflow-x-auto">
+                <div class="min-w-[480px]">
+                    <div class="grid grid-cols-3 mb-4">
+                        <div class="text-center"><div class="inline-block bg-brand-cyan/15 border border-brand-cyan/30 rounded-lg px-4 py-2 text-xs font-mono text-brand-cyan font-bold">Client</div></div>
+                        <div class="text-center"><div class="inline-block bg-brand-rust/15 border border-brand-rust/30 rounded-lg px-4 py-2 text-xs font-mono text-brand-rust font-bold">Server</div></div>
+                        <div class="text-center"><div class="inline-block bg-gray-500/15 border border-gray-500/30 rounded-lg px-4 py-2 text-xs font-mono text-gray-400 font-bold">Subscribers</div></div>
+                    </div>
+                    <div class="space-y-0">
+                        <div class="grid grid-cols-3 items-center py-3 border-t border-white/5">
+                            <div class="text-right pr-4"><div class="text-[10px] text-gray-500 font-mono">① 카메라 시작</div><div class="text-xs text-brand-cyan word-keep-all">하드웨어 구동 + AE 수렴 대기</div></div>
+                            <div class="col-span-2"></div>
+                        </div>
+                        <div class="grid grid-cols-3 items-center py-3 border-t border-white/5">
+                            <div class="text-right pr-4"><div class="text-[10px] text-gray-500 font-mono">② 첫 프레임 캡처</div><div class="text-xs text-green-400 word-keep-all">AE 1차 수렴 완료 확인</div></div>
+                            <div class="col-span-2"></div>
+                        </div>
+                        <div class="grid grid-cols-3 items-center py-3 border-t border-white/5">
+                            <div class="text-right pr-2"><div class="text-[10px] text-gray-500 font-mono">③</div></div>
+                            <div class="relative px-2">
+                                <div class="h-[2px] bg-gradient-to-r from-brand-cyan to-brand-rust rounded"></div>
+                                <div class="absolute top-1/2 right-0 -translate-y-1/2 w-0 h-0 border-l-[6px] border-l-brand-rust border-y-[3px] border-y-transparent"></div>
+                                <div class="text-center text-[10px] text-gray-400 font-mono mt-1">CAMERA_READY</div>
+                            </div>
+                            <div></div>
+                        </div>
+                        <div class="grid grid-cols-3 items-center py-3 border-t border-white/5">
+                            <div></div>
+                            <div class="text-right pr-2"><div class="text-[10px] text-gray-500 font-mono">④</div></div>
+                            <div class="relative pl-2">
+                                <div class="h-[2px] bg-gradient-to-r from-brand-rust to-gray-500 rounded"></div>
+                                <div class="absolute top-1/2 right-2 -translate-y-1/2 w-0 h-0 border-l-[6px] border-l-gray-500 border-y-[3px] border-y-transparent"></div>
+                                <div class="text-center text-[10px] text-gray-400 font-mono mt-1">키프레임 요청 즉시 발사</div>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-3 items-center py-3 border-t border-white/5">
+                            <div></div>
+                            <div class="text-right pr-2"><div class="text-[10px] text-gray-500 font-mono">⑤ +150ms</div></div>
+                            <div class="relative pl-2">
+                                <div class="h-[2px] bg-gradient-to-r from-brand-rust/50 to-gray-500/50 rounded" style="border: 1px dashed rgba(228,91,37,0.3);height:0"></div>
+                                <div class="text-center text-[10px] text-gray-500 font-mono mt-1">보험 키프레임 1발</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="bg-white/[0.03] border border-white/5 rounded-xl p-4">
+                    <h4 class="text-xs font-mono text-green-400 font-bold mb-2">기존 방식의 문제</h4>
+                    <p class="text-xs text-gray-400 word-keep-all">서버가 타이밍을 추측하여 키프레임 요청을 보냅니다. 카메라 AE/AWB 수렴 전에 요청이 도착하면 허공에 낭비되고, 수렴 후 한참 뒤에 도착하면 불필요한 지연이 발생합니다.</p>
+                </div>
+                <div class="bg-white/[0.03] border border-white/5 rounded-xl p-4">
+                    <h4 class="text-xs font-mono text-brand-cyan font-bold mb-2">Client-driven 방식의 이점</h4>
+                    <p class="text-xs text-gray-400 word-keep-all">클라이언트가 "첫 프레임 캡처 완료" 콜백을 받은 시점에 서버에 준비 완료를 알립니다. 서버의 타이밍 추측이 불필요하며, 첫 프레임 캡처 = AE 1차 수렴이므로 키프레임 요청 2발이면 충분합니다.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION: Signaling Disconnection -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16 border-t border-white/10 pt-12">
+            <h2 class="text-xl sm:text-2xl font-bold mb-2 font-mono text-white">Exception Handling — Signaling Disconnection</h2>
+            <p class="text-gray-400 text-sm mb-6 word-keep-all">시그널링 채널(TCP)이 단절되면, 모든 캐시된 상태를 즉시 파기하고 완전한 재시작을 수행합니다.</p>
+            <div class="bg-red-500/5 border border-red-500/20 rounded-xl p-6">
+                <div class="flex items-start gap-4">
+                    <div class="w-12 h-12 rounded-full bg-red-500/15 flex items-center justify-center shrink-0">
+                        <svg class="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
+                    </div>
+                    <div>
+                        <h3 class="text-red-400 font-mono font-bold text-sm mb-2">Zero Tolerance — Full Cold Start</h3>
+                        <div class="text-sm text-gray-300 word-keep-all space-y-2">
+                            <p>시그널링 연결이 유실되면 SDP, 암호화 컨텍스트, 연결 상태 등 <b class="text-white">모든 캐시를 즉시 파기</b>합니다.</p>
+                            <p>이후 이벤트 발생 시 완전히 새로운 세션을 수립합니다 — 서버-클라이언트 상태 불일치(좀비 세션)를 원천 차단합니다.</p>
+                            <p class="text-red-400 font-bold text-xs font-mono">타협 없음.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION: Server Integration -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16 border-t border-white/10 pt-12">
+            <h2 class="text-xl sm:text-2xl font-bold mb-6 font-mono text-white">Server Integration — Additional Signaling</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm font-mono border-collapse">
+                    <thead><tr class="border-b border-white/10 text-gray-400 text-left"><th class="py-3 pr-4">Signal</th><th class="py-3 pr-4">Direction</th><th class="py-3">Purpose</th></tr></thead>
+                    <tbody class="text-gray-300">
+                        <tr class="border-b border-white/5 hover:bg-white/[0.02] transition"><td class="py-3 pr-4"><span class="text-brand-cyan">CAMERA_READY</span></td><td class="py-3 pr-4 text-xs text-gray-400">Client → Server</td><td class="py-3 text-xs word-keep-all">카메라 웜업 완료 알림. 서버가 수신자에게 키프레임 요청 발사</td></tr>
+                        <tr class="border-b border-white/5 hover:bg-white/[0.02] transition"><td class="py-3 pr-4"><span class="text-brand-rust">VIDEO_SUSPENDED</span></td><td class="py-3 pr-4 text-xs text-gray-400">Server → Clients</td><td class="py-3 text-xs word-keep-all">특정 사용자 비디오 중단 알림. 수신자 UI를 placeholder로 전환</td></tr>
+                        <tr class="border-b border-white/5 hover:bg-white/[0.02] transition"><td class="py-3 pr-4"><span class="text-green-400">VIDEO_RESUMED</span></td><td class="py-3 pr-4 text-xs text-gray-400">Server → Clients</td><td class="py-3 text-xs word-keep-all">특정 사용자 비디오 재개 알림. 수신자 UI 복원</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- SECTION: Feasibility Matrix -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-20 border-t border-white/10 pt-12">
+            <h2 class="text-xl sm:text-2xl font-bold mb-6 font-mono text-white">Feasibility Matrix</h2>
+            <div class="space-y-3" id="feasibilityList"></div>
+            <div class="mt-6 flex items-center gap-6 text-xs font-mono text-gray-500">
+                <span class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-sm bg-green-500/30 border border-green-500/40"></span> Proven — 표준 API 또는 검증된 패턴</span>
+                <span class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-sm bg-yellow-500/30 border border-yellow-500/40"></span> Field-test Required — 네트워크 환경 실측 필요</span>
+            </div>
+        </section>
+
+        <!-- SECTION: Technology Foundation -->
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-20">
+            <div class="bg-brand-surface border border-white/5 rounded-xl p-6">
+                <h3 class="font-mono text-white font-bold text-sm mb-4">Technology Foundation</h3>
+                <p class="text-gray-400 text-sm leading-relaxed word-keep-all">
+                    본 파이프라인은 업계 표준 미디어 엔진(libwebrtc)의 공식 확장 인터페이스를 활용합니다.
+                    엔진 내부를 직접 수정하지 않으며, 문서화된 확장 포인트만을 사용하여
+                    엔진 업데이트에 영향받지 않는 안정적인 구현을 보장합니다.
+                </p>
+                <div class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs font-mono">
+                    <div class="bg-white/[0.03] rounded-lg p-3 text-center"><div class="text-brand-rust font-bold">수신 보정 레이어</div><div class="text-gray-500 mt-1">엔진 확장 포인트 주입</div></div>
+                    <div class="bg-white/[0.03] rounded-lg p-3 text-center"><div class="text-brand-cyan font-bold">송신 제어</div><div class="text-gray-500 mt-1">표준 WebRTC API</div></div>
+                    <div class="bg-white/[0.03] rounded-lg p-3 text-center"><div class="text-green-400 font-bold">연결 관리</div><div class="text-gray-500 mt-1">엔진 설정값 동적 조정</div></div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="py-8 border-t border-white/5">
+        <div class="max-w-5xl mx-auto px-4 sm:px-6 text-center text-sm text-gray-500 font-mono space-y-1">
+            <div>&copy; 2026 0xLENS Systems — Rx/Tx Pipeline Architecture v1.0</div>
+        </div>
+    </footer>
+
+<script>
+// author: kodeholic (powered by Claude)
+document.getElementById('stageAccordion').addEventListener('click', e => {
+    const card = e.target.closest('.stage-card');
+    if (!card) return;
+    const wasOpen = card.classList.contains('open');
+    document.querySelectorAll('.stage-card.open').forEach(c => c.classList.remove('open'));
+    if (!wasOpen) card.classList.add('open');
+});
+
+const iceData = [
+    { label: '기본값 (Default)',  interval: 2.5,  max: 60, color: 'bg-red-500',    note: '2.5초 — 모뎀 지속 웨이크업' },
+    { label: 'Stage 1~2',        interval: 12.5, max: 60, color: 'bg-green-500',   note: '10~15초 — NAT 타임아웃 내 안전 마진' },
+    { label: 'Stage 3',          interval: 45,   max: 60, color: 'bg-yellow-500',   note: '30~60초 — NAT 소실 감수, 재협상으로 복구' },
+];
+const iceContainer = document.getElementById('iceBars');
+iceData.forEach(r => {
+    const w = (r.interval / r.max * 100).toFixed(1);
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-3';
+    row.innerHTML = `<div class="w-28 sm:w-36 text-right text-xs font-mono text-gray-500 shrink-0">${r.label}</div><div class="flex-1 relative h-7 bg-white/5 rounded overflow-hidden"><div class="bar bar-enter absolute inset-y-0 left-0 ${r.color}/70 rounded" style="width:${w}%"></div><span class="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono text-gray-400">${r.note}</span></div>`;
+    iceContainer.appendChild(row);
+});
+
+const feasibility = [
+    { name: 'Audio Decoder Warm-keeping', status: 'proven', note: 'SFU 서버 검증 로직 이식' },
+    { name: 'Seamless Stream Continuity', status: 'proven', note: '미디어 엔진 공식 확장 포인트' },
+    { name: 'Tx Stage 1 — Soft-Mute', status: 'proven', note: '표준 WebRTC API' },
+    { name: 'Tx Stage 2 — Hard-Mute', status: 'proven', note: '표준 API + 시그널링 확장' },
+    { name: 'Tx Stage 3 — Deep Sleep', status: 'conditional', note: 'NAT 타임아웃 환경별 실측 필요' },
+    { name: 'NAT Traversal Optimization', status: 'conditional', note: '통신사별 실측 필요' },
+    { name: 'Client-driven Readiness (Camera Warmup)', status: 'proven', note: '플랫폼별 콜백 검증 필요' },
+    { name: 'Signaling Disconnection → Full Cold Start', status: 'proven', note: '무조건 수행' },
+];
+const feasContainer = document.getElementById('feasibilityList');
+feasibility.forEach(item => {
+    const isProven = item.status === 'proven';
+    const statusCls = isProven ? 'status-proven' : 'status-conditional';
+    const statusText = isProven ? '✅ Proven' : '⚠️ Field-test';
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-4 bg-brand-surface border border-white/5 rounded-lg px-4 py-3';
+    row.innerHTML = `<div class="inline-flex items-center px-2.5 py-1 rounded-md border text-[10px] font-mono font-bold shrink-0 ${statusCls}">${statusText}</div><div class="flex-1 min-w-0"><div class="text-sm text-white font-medium truncate">${item.name}</div><div class="text-[10px] text-gray-500 font-mono mt-0.5">${item.note}</div></div>`;
+    feasContainer.appendChild(row);
+});
+
+setTimeout(() => { document.querySelectorAll('.bar-enter').forEach(el => el.classList.remove('bar-enter')); }, 300);
+</script>
+</body>
+</html>

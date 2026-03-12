@@ -23,6 +23,7 @@ DEPLOY_TARGETS=(
     "common"
     "client"
     "admin"
+    "docs"
 )
 
 # --- 컬러 출력 ---
@@ -117,6 +118,7 @@ do_patch() {
     echo "  포탈:  http://<host>/"
     echo "  PTT:   http://<host>/client/"
     echo "  Admin: http://<host>/admin/"
+    echo "  Docs:  http://<host>/docs/"
     echo "========================================"
 }
 
