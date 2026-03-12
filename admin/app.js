@@ -683,9 +683,8 @@ function renderServerMetrics() {
   let html = '';
   html += '<div class="text-[10px] text-gray-500 uppercase tracking-wider font-mono mb-1">타이밍 (avg/max)</div>';
   html += '<div class="space-y-0.5 mb-3 text-[11px]">';
-  html += `<div class="flex justify-between px-2 py-1 bg-brand-dark rounded"><span class="text-gray-400">relay total</span>${fmtTiming(m.relay)}</div>`;
   html += `<div class="flex justify-between px-2 py-1 bg-brand-dark rounded"><span class="text-gray-400">decrypt</span>${fmtTiming(m.decrypt)}</div>`;
-  html += `<div class="flex justify-between px-2 py-1 bg-brand-dark rounded"><span class="text-gray-400">encrypt</span>${fmtTiming(m.encrypt)}</div>`;
+  html += `<div class="flex justify-between px-2 py-1 bg-brand-dark rounded"><span class="text-gray-400">egress encrypt</span>${fmtTiming(m.egress_encrypt)}</div>`;
   html += `<div class="flex justify-between px-2 py-1 bg-brand-dark rounded"><span class="text-gray-400">lock wait</span>${fmtTiming(m.lock_wait)}</div>`;
   html += '</div>';
 
@@ -736,13 +735,6 @@ function renderServerMetrics() {
     if ((p.floor_revoked||0) > 0) {
       html += '<div class="px-2 py-1 bg-yellow-500/10 border border-yellow-500/30 rounded text-[11px] text-yellow-400 mb-2">⚠ Floor Revoke 발생 — 클라이언트 PING 미전송 또는 네트워크 문제</div>';
     }
-  }
-
-  // --- Egress encrypt timing (v0.3.9) ---
-  if (m.egress_encrypt && m.egress_encrypt !== null) {
-    const eg = m.egress_encrypt;
-    html += '<div class="text-[10px] text-gray-500 uppercase tracking-wider font-mono mt-3 mb-1">Egress Encrypt</div>';
-    html += `<div class="px-2 py-1 bg-brand-dark rounded text-[11px] text-gray-300 mb-3">${fmtTiming(eg)}</div>`;
   }
 
   // --- Tokio Runtime (v0.3.9) ---
@@ -989,18 +981,14 @@ function buildSnapshot() {
   if (latestServerMetrics) {
     const m = latestServerMetrics;
     const f = t => t?`avg=${(t.avg_us/1000).toFixed(2)}ms max=${(t.max_us/1000).toFixed(2)}ms count=${t.count}`:'N/A';
-    L.push(`[server] relay: ${f(m.relay)}`);
     L.push(`[server] decrypt: ${f(m.decrypt)}`);
-    L.push(`[server] encrypt: ${f(m.encrypt)}`);
+    L.push(`[server] egress_encrypt: ${f(m.egress_encrypt)}`);
     L.push(`[server] lock_wait: ${f(m.lock_wait)}`);
     L.push(`[server] nack_recv=${m.nack_received} rtx_sent=${m.rtx_sent} rtx_miss=${m.rtx_cache_miss} pli_sent=${m.pli_sent} sr_relay=${m.sr_relayed} rr_relay=${m.rr_relayed} twcc_fb=${m.twcc_sent} twcc_rec=${m.twcc_recorded} remb=${m.remb_sent}`);
     L.push(`[server:rtx_diag] cache_stored=${m.rtp_cache_stored??0} pub_not_found=${m.nack_pub_not_found??0} no_rtx=${m.nack_no_rtx??0} lock_fail=${m.cache_lock_fail??0} egress_drop=${m.egress_drop??0}`);
     if (m.ptt) {
       const p = m.ptt;
       L.push(`[server:ptt] gated=${p.rtp_gated??0} rewritten=${p.rtp_rewritten??0} audio_rw=${p.audio_rewritten??0} video_rw=${p.video_rewritten??0} vid_skip=${p.video_skip??0} kf_pending_drop=${p.video_pending_drop??0} kf_arrived=${p.keyframe_arrived??0} granted=${p.floor_granted??0} released=${p.floor_released??0} revoked=${p.floor_revoked??0} switches=${p.speaker_switches??0} nack_remap=${p.nack_remapped??0}`);
-    }
-    if (m.egress_encrypt && m.egress_encrypt !== null) {
-      L.push(`[server] egress_encrypt: avg=${(m.egress_encrypt.avg_us/1000).toFixed(2)}ms max=${(m.egress_encrypt.max_us/1000).toFixed(2)}ms count=${m.egress_encrypt.count}`);
     }
     if (m.env) {
       const e = m.env;

@@ -232,7 +232,16 @@ function bindSdkEvents(s) {
       s.listRooms();
       log("ok", `인증 완료: ${s.userId}`);
     }
-    if (state === CONN.DISCONNECTED) resetUI();
+    if (state === CONN.DISCONNECTED) {
+      // Full Cold Start: 시그널링 단절 → 모든 캐시 파기 (타협 없음)
+      // PeerConnection, MediaStream, DTLS/SRTP context, telemetry 전부 정리
+      if (sdk && isInRoom) {
+        sdk.tel.stop();
+        sdk.media.teardown();
+        log("sys", "시그널링 단절 → Full Cold Start (PC/미디어/텔레메트리 정리 완료)");
+      }
+      resetUI();
+    }
   });
 
   s.on("ws:error", ({ reason }) => log("err", `WS 연결 실패: ${reason}`));
