@@ -83,3 +83,12 @@ export const MUTE = Object.freeze({
 // ============================================================
 export const FLOOR_PING_MS = 2000;
 export const MUTE_ESCALATION_MS = 5000;
+
+// ============================================================
+//  DeviceManager 이벤트
+// ============================================================
+export const DEVICE_KIND = Object.freeze({
+  AUDIO_INPUT:  "audioinput",
+  AUDIO_OUTPUT: "audiooutput",
+  VIDEO_INPUT:  "videoinput",
+});

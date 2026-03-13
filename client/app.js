@@ -2,7 +2,7 @@
 // livechat-client/app.js — Light LiveChat 클라이언트 UI
 // SDK 이벤트 구독으로만 동작 — 비즈니스 로직 Zero
 
-import { LiveChatSDK, CONN, FLOOR, SDK_VERSION } from "../common/livechat-sdk.js";
+import { OxLensClient, CONN, FLOOR, SDK_VERSION, DEVICE_KIND } from "../core/client.js";
 
 // ============================================================
 //  DOM
@@ -17,6 +17,10 @@ let isSpeakerOn  = true;
 let isMicMuted   = false;
 let isConnected  = false;
 let isInRoom     = false;
+let isControlLocked = false;
+let isConnecting = false;
+// 방 입장 상태: null | "joining" | "connecting" | "connected"
+let joinPhase = null;
 let currentRoomMode = "conference";
 let localStream  = null;
 // userId → MediaStream (subscribe PC ontrack에서 stream.id='light-{userId}' 기준 매핑)
@@ -52,41 +56,47 @@ function forcePlay(reason) {
 function updateWsBadge(state) {
   const el = $("ws-badge");
   const map = {
-    [CONN.DISCONNECTED]: ["DISCONNECTED", "bg-titanium-700 text-titanium-400 border border-titanium-600"],
-    [CONN.CONNECTING]:   ["CONNECTING",   "bg-yellow-600 text-white"],
-    [CONN.CONNECTED]:    ["CONNECTED",    "bg-blue-600 text-white"],
-    [CONN.IDENTIFIED]:   ["READY",        "bg-green-500 text-white"],
+    [CONN.DISCONNECTED]: ["ph-wifi-slash",   "OFF",   "bg-brand-surface text-gray-500 border border-white/10", ""],
+    [CONN.CONNECTING]:   ["ph-wifi-medium",  "",      "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30", "animate-pulse"],
+    [CONN.CONNECTED]:    ["ph-wifi-high",    "",      "bg-blue-500/20 text-blue-400 border border-blue-500/30", ""],
+    [CONN.IDENTIFIED]:   ["ph-check-circle", "READY", "bg-green-500/20 text-green-400 border border-green-500/30", ""],
   };
-  const [text, cls] = map[state] || ["UNKNOWN", "bg-titanium-700 text-titanium-400"];
-  el.textContent = text;
-  el.className = `px-2 py-0.5 rounded text-xs font-medium ${cls}`;
+  const [icon, label, cls, anim] = map[state] || ["ph-question", "?", "bg-brand-surface text-gray-500 border border-white/10", ""];
+  el.innerHTML = `<i class="ph ${icon} text-sm ${anim}"></i>${label ? `<span>${label}</span>` : ""}`;
+  el.className = `px-2 py-0.5 rounded text-xs font-medium font-mono flex items-center gap-1 ${cls}`;
 }
 
 function updateConnectBtn() {
   const btn = $("btn-connect");
   if (isConnected) {
-    btn.classList.remove("text-titanium-400", "bg-titanium-700");
-    btn.classList.add("text-green-400", "bg-titanium-700");
+    btn.className = "w-10 h-10 rounded-full flex items-center justify-center transition-colors bg-green-500/20 border border-green-400 text-green-400 shadow-[0_0_8px_rgba(74,222,128,0.3)]";
     btn.title = "해제";
   } else {
-    btn.classList.remove("text-green-400");
-    btn.classList.add("text-titanium-400", "bg-titanium-700");
+    btn.className = "w-10 h-10 rounded-full flex items-center justify-center transition-colors bg-brand-surface border border-white/10 text-gray-400 hover:bg-white/5 hover:text-brand-cyan";
     btn.title = "연결";
   }
 }
 
 function updateRoomBtn() {
   const btn = $("btn-room");
-  if (isInRoom) {
-    btn.classList.remove("text-titanium-400");
-    btn.classList.add("text-green-400");
+  const busy = joinPhase && joinPhase !== "connected";
+  if (busy) {
+    // 입장 진행 중 (모든 단계) — 노란 펌스 + disabled
+    btn.className = "w-10 h-10 rounded-full flex items-center justify-center transition-colors bg-yellow-500/20 border border-yellow-400 text-yellow-400 animate-pulse disabled:opacity-50";
+    btn.title = "입장 중…";
+    btn.disabled = true;
+    $("icon-room-enter").classList.remove("hidden");
+    $("icon-room-exit").classList.add("hidden");
+  } else if (isInRoom) {
+    btn.className = "w-10 h-10 rounded-full flex items-center justify-center transition-colors bg-green-500/20 border border-green-400 text-green-400 shadow-[0_0_8px_rgba(74,222,128,0.3)] disabled:opacity-50";
     btn.title = "퇴장";
+    btn.disabled = false;
     $("icon-room-enter").classList.add("hidden");
     $("icon-room-exit").classList.remove("hidden");
   } else {
-    btn.classList.remove("text-green-400");
-    btn.classList.add("text-titanium-400");
+    btn.className = "w-10 h-10 rounded-full flex items-center justify-center transition-colors bg-brand-surface border border-white/10 text-gray-400 hover:bg-white/5 hover:text-brand-cyan disabled:opacity-50";
     btn.title = "입장";
+    btn.disabled = false;
     $("icon-room-enter").classList.remove("hidden");
     $("icon-room-exit").classList.add("hidden");
   }
@@ -203,6 +213,7 @@ function updateSpeakerIcon(on) {
 function resetUI() {
   isConnected = false;
   isInRoom = false;
+  joinPhase = null;
   currentRoomMode = "conference";
   updateConnectBtn();
   updateRoomBtn();
@@ -216,17 +227,48 @@ function resetUI() {
   setControlsEnabled(false);
   updatePttView("idle", null);
   _stopTalkTimer();
+  updateInputLocks();
+  // 컨트롤 잠금 리셋
+  if (isControlLocked) toggleControlLock();
+}
+
+/**
+ * 상태별 입력 필드 잠금.
+ *   연결 전:  서버 주소 + 사용자 ID + 방 선택 편집 가능
+ *   연결 후:  서버 주소 + 사용자 ID 비활성 / 방 선택 가능
+ *   방 입장: 서버 주소 + 사용자 ID + 방 선택 전부 비활성
+ */
+function updateInputLocks() {
+  $("srv-url").disabled = isConnected;
+  $("user-id").disabled = isConnected;
+  $("room-select").disabled = isInRoom;
 }
 
 // ============================================================
 //  SDK Event Binding
 // ============================================================
 function bindSdkEvents(s) {
+  // 출력 대상 element 등록 (remoteAudio는 항상 존재)
+  s.addOutputElement(remoteAudio);
+
+  // 장치 목록 변경 이벤트 (핵플러그 등)
+  s.on("device:list", ({ devices }) => updateDeviceSelects(devices));
+  s.on("device:changed", ({ kind, deviceId }) => {
+    log("sys", `장치 전환: ${kind} → ${deviceId?.slice(0, 12) || "default"}`);
+  });
+  s.on("device:disconnected", ({ kind, deviceId }) => {
+    log("err", `장치 분리됨: ${kind} (${deviceId?.slice(0, 12)}) → 기본으로 복귀`);
+  });
+  s.on("device:error", ({ kind, msg }) => {
+    log("err", `장치 오류: ${kind} — ${msg}`);
+  });
+
   s.on("conn:state", ({ state }) => {
     updateWsBadge(state);
     if (state === CONN.IDENTIFIED) {
       isConnected = true;
       updateConnectBtn();
+      updateInputLocks();
       $("btn-room").disabled = false;
       // 인증 완료 → 즉시 방 목록 조회
       s.listRooms();
@@ -244,17 +286,50 @@ function bindSdkEvents(s) {
     }
   });
 
-  s.on("ws:error", ({ reason }) => log("err", `WS 연결 실패: ${reason}`));
+  s.on("ws:error", ({ reason }) => {
+    log("err", `WS 연결 실패: ${reason}`);
+  });
+
+  s.on("ws:disconnected", ({ code, reason }) => {
+    // 연결 시도 중 실패 → 모달 표시
+    if (isConnecting) {
+      isConnecting = false;
+      const url = $("srv-url").value.trim();
+      showFailModal(
+        "연결 실패",
+        `${url} 연결 실패${reason ? " \u2014 " + reason : ""} (code: ${code || "?"})`,
+        () => { if (sdk) { sdk.disconnect(); sdk = null; } resetUI(); _doConnect(); }
+      );
+    }
+  });
+
+  s.on("ws:connected", () => {
+    isConnecting = false;
+  });
 
   s.on("room:list", (d) => {
     populateRoomSelect(d.rooms);
   });
 
+  // 입장 단계별 상태 전환 (SDK join:phase 이벤트)
+  s.on("join:phase", ({ phase }) => {
+    if (phase === "media") {
+      joinPhase = "media";
+      showToast("media", "카메라/마이크 준비 중…");
+    } else if (phase === "signaling") {
+      joinPhase = "signaling";
+      showToast("signal", "서버 입장 요청 중…");
+    }
+    updateRoomBtn();
+  });
+
   s.on("room:joined", (d) => {
+    joinPhase = "connecting";
+    showToast("ice", "미디어 연결 중…");
     isInRoom = true;
     currentRoomMode = sdk?.roomMode || "conference";
-    $("btn-room").disabled = false;
     updateRoomBtn();
+    updateInputLocks();
     setControlsEnabled(true); // 방 입장 즉시 활성
     switchControlMode(currentRoomMode);
     if (currentRoomMode === "ptt") {
@@ -265,13 +340,17 @@ function bindSdkEvents(s) {
       // 타일 생성 후 저장된 remote stream 연결 시도
       tryAttachRemoteVideo();
     }
+    // 장치 목록 갱신 (getUserMedia 후라 label 노출됨)
+    updateDeviceSelects(sdk.getDevices());
     log("ok", `방 입장: ${d.room_id} (${(d.participants || []).length}명, mode=${currentRoomMode})`);
   });
 
   s.on("room:left", () => {
     isInRoom = false;
+    joinPhase = null;
     currentRoomMode = "conference";
     updateRoomBtn();
+    updateInputLocks();
     setControlsEnabled(false);
     $("btn-room").disabled = false;
     localStream = null;
@@ -286,7 +365,10 @@ function bindSdkEvents(s) {
     updatePttView("idle", null);
     _stopTalkTimer();
     // 동적 audio element 전체 정리
-    document.querySelectorAll('audio[data-uid]').forEach(el => { el.srcObject = null; el.remove(); });
+    document.querySelectorAll('audio[data-uid]').forEach(el => {
+      if (sdk) sdk.removeOutputElement(el);
+      el.srcObject = null; el.remove();
+    });
     remoteAudio.srcObject = null;
     $("conf-grid").innerHTML = "";
     // 퇴장 후 목록 갱신
@@ -320,7 +402,10 @@ function bindSdkEvents(s) {
       remoteStreams.delete(uid);
       // audio element 정리
       const audioEl = document.querySelector(`audio[data-uid="${uid}"]`);
-      if (audioEl) { audioEl.srcObject = null; audioEl.remove(); }
+      if (audioEl) {
+        if (sdk) sdk.removeOutputElement(audioEl);
+        audioEl.srcObject = null; audioEl.remove();
+      }
       const tile = $("conf-grid")?.querySelector(`[data-uid="${uid}"]`);
       if (tile) {
         tile.remove();
@@ -365,6 +450,8 @@ function bindSdkEvents(s) {
         audioEl.dataset.uid = audioKey;
         audioEl.style.display = "none";
         document.body.appendChild(audioEl);
+        // DeviceManager에 출력 대상 등록 (setSinkId 적용)
+        sdk.addOutputElement(audioEl);
       }
       audioEl.srcObject = stream;
       audioEl.play().then(() => log("ok", `[audio] play() 성공 user=${audioKey}`))
@@ -416,6 +503,28 @@ function bindSdkEvents(s) {
     if (pc === "publish" && state === "connected" && currentRoomMode === "ptt") {
       $("conf-btn-mic").classList.add("hidden");
     }
+    // publish ICE connected → 미디어 경로 확립 (컨트롤 버튼 녹색 전환)
+    if (pc === "publish" && state === "connected" && joinPhase === "connecting") {
+      joinPhase = "connected";
+      updateRoomBtn();
+      showToast("ok", "미디어 연결 완료");
+      log("ok", "미디어 연결 완료");
+    }
+    // ICE failed → 모달
+    if (pc === "publish" && state === "failed" && isInRoom) {
+      joinPhase = null;
+      updateRoomBtn();
+      showFailModal(
+        "미디어 연결 실패",
+        "ICE 연결에 실패했습니다. 네트워크를 확인해주세요.",
+        null
+      );
+    }
+  });
+
+  // connectionState 보조 로깅 (참고용)
+  s.on("media:conn", ({ pc, state }) => {
+    log(state === "connected" ? "ok" : "sys", `[CONN] ${pc} ${state}`);
   });
 
   // ── Track State (mute/unmute 브로드캐스트) ──
@@ -511,7 +620,26 @@ function bindSdkEvents(s) {
   });
 
   s.on("message", (d) => log("sys", `메시지 [${d.user_id}]: ${d.content}`));
-  s.on("error", (d) => log("err", `에러 ${d.code}: ${d.msg}`));
+
+  s.on("error", (d) => {
+    log("err", `에러 ${d.code}: ${d.msg}`);
+
+    // 방 입장 실패 (4001=server_config 누락, 4002=2PC 실패, 4003=subscribe 실패)
+    // 또는 서버 응답 에러 (op=ROOM_JOIN)
+    // code 0 + "미디어 획득 실패" = getUserMedia 거부
+    const isMediaError = d.code === 0 && d.msg?.includes("미디어 획득 실패");
+    const isJoinError = d.code === 4001 || d.code === 4002 || d.op === 11 || isMediaError;
+    if (isJoinError && (joinPhase || !isInRoom)) {
+      joinPhase = null;
+      updateRoomBtn();
+      const roomId = $("room-select").value;
+      showFailModal(
+        "입장 실패",
+        `방 입장에 실패했습니다: ${d.msg || "알 수 없는 오류"} (code: ${d.code || "?"})`,
+        roomId ? () => { unlockAudio("retry"); joinPhase = "joining"; updateRoomBtn(); sdk.joinRoom(roomId, true); } : null
+      );
+    }
+  });
 }
 
 // ============================================================
@@ -526,13 +654,7 @@ $("btn-connect").onclick = () => {
     sdk = null;
     log("sys", "연결 해제");
   } else {
-    const url = $("srv-url").value.trim();
-    const userId = $("user-id").value.trim() || undefined;
-    const mediaCfg = getMediaSettings();
-    sdk = new LiveChatSDK({ url, userId, token: "kodeholic", ...mediaCfg });
-    bindSdkEvents(sdk);
-    sdk.connect();
-    log("sys", `서버 연결: ${url}`);
+    _doConnect();
   }
 };
 
@@ -545,14 +667,13 @@ $("btn-room").onclick = () => {
     const roomId = $("room-select").value;
     if (!roomId) { log("err", "방을 선택하세요"); return; }
     unlockAudio("join");
-    $("btn-room").disabled = true;
     sdk.joinRoom(roomId, true);
   }
 };
 
 // 마이크 뮤트 (soft → 5초 후 hard escalation)
 $("conf-btn-mic").onclick = async () => {
-  if (!sdk) return;
+  if (!sdk || isControlLocked) return;
   await sdk.toggleMute("audio");
   isMicMuted = sdk.isMuted("audio");
   updateMicIcon(isMicMuted);
@@ -561,6 +682,7 @@ $("conf-btn-mic").onclick = async () => {
 
 // 스피커
 $("conf-btn-speaker").onclick = () => {
+  if (isControlLocked) return;
   isSpeakerOn = !isSpeakerOn;
   remoteAudio.muted = !isSpeakerOn;
   // 개별 audio element도 반영
@@ -571,7 +693,7 @@ $("conf-btn-speaker").onclick = () => {
 
 // 비디오 뮤트 (soft → 5초 후 hard escalation)
 $("conf-btn-video").onclick = async () => {
-  if (!sdk) return;
+  if (!sdk || isControlLocked) return;
   await sdk.toggleMute("video");
   const muted = sdk.isMuted("video");
   $("icon-video-on").classList.toggle("hidden", muted);
@@ -597,7 +719,7 @@ $("conf-btn-video").onclick = async () => {
 };
 
 // 카메라 전환
-$("conf-btn-camera").onclick = () => { if (sdk) sdk.switchCamera(); };
+$("conf-btn-camera").onclick = () => { if (sdk && !isControlLocked) sdk.switchCamera(); };
 
 // ============================================================
 //  Floor Control UI (PTT 모드) — 4-state (IDLE/REQUESTING/TALKING/LISTENING)
@@ -753,13 +875,13 @@ const pttView = $("ptt-view");
 function pttDown(e) {
   e.preventDefault();
   if (!sdk || currentRoomMode !== "ptt") return;
-  if (pttLocked) return; // 긴급발언 중이면 터치 무시
+  if (pttLocked || isControlLocked) return;
   sdk.floorRequest();
 }
 function pttUp(e) {
   e.preventDefault();
   if (!sdk || currentRoomMode !== "ptt") return;
-  if (pttLocked) return; // 긴급발언 중이면 터치 무시
+  if (pttLocked || isControlLocked) return;
   sdk.floorRelease();
 }
 pttView.addEventListener("mousedown", pttDown);
@@ -780,7 +902,7 @@ function resetPttLockBtn() {
   btn.title = "긴급발언 (토글)";
 }
 $("btn-ptt-lock").onclick = () => {
-  if (!sdk || currentRoomMode !== "ptt") return;
+  if (!sdk || currentRoomMode !== "ptt" || isControlLocked) return;
   const btn = $("btn-ptt-lock");
   if (!pttLocked) {
     // 잠금 ON → Floor Request
@@ -800,6 +922,185 @@ $("btn-ptt-lock").onclick = () => {
 };
 
 // ============================================================
+//  Control Lock (포켓 오작동 방지 — 3초 롱프레스)
+// ============================================================
+const CTRL_LOCK_HOLD_MS = 1500;
+let _ctrlLockTimer = null;
+let _ctrlLockProgress = null;
+
+function toggleControlLock() {
+  isControlLocked = !isControlLocked;
+  const btn = $("btn-ctrl-lock");
+  $("icon-lock-off").classList.toggle("hidden", isControlLocked);
+  $("icon-lock-on").classList.toggle("hidden", !isControlLocked);
+
+  if (isControlLocked) {
+    btn.className = "w-11 h-11 rounded-full flex items-center justify-center transition-colors bg-yellow-500/20 border border-yellow-400 text-yellow-400 relative overflow-hidden";
+    btn.title = "3초 길게 눌러 잠금 해제";
+  } else {
+    btn.className = "w-11 h-11 rounded-full flex items-center justify-center transition-colors bg-brand-surface border border-white/10 text-gray-400 hover:bg-white/5 relative overflow-hidden";
+    btn.title = "3초 길게 눌러 잠금";
+  }
+
+  // 잠금 시 다른 버튼들 시각적 비활성
+  const btns = [$("conf-btn-camera"), $("conf-btn-video"), $("conf-btn-mic"), $("conf-btn-speaker"), $("btn-ptt-lock")];
+  btns.forEach(b => {
+    if (!b) return;
+    if (isControlLocked) {
+      b.style.opacity = "0.3";
+      b.style.pointerEvents = "none";
+    } else {
+      b.style.opacity = "";
+      b.style.pointerEvents = "";
+    }
+  });
+
+  log("sys", `컨트롤 ${isControlLocked ? "잠금 활성" : "잠금 해제"}`);
+}
+
+function _startLockHold() {
+  _cancelLockHold();
+  // 프로그레스 링 표시
+  const btn = $("btn-ctrl-lock");
+  _ctrlLockProgress = document.createElement("div");
+  _ctrlLockProgress.className = "absolute inset-0 rounded-full";
+  _ctrlLockProgress.style.cssText = `
+    background: conic-gradient(rgba(250,204,21,0.4) 0deg, transparent 0deg);
+    transition: none; pointer-events: none;
+  `;
+  btn.appendChild(_ctrlLockProgress);
+
+  // 3초 동안 프로그레스 애니메이션
+  const start = Date.now();
+  const frame = () => {
+    const elapsed = Date.now() - start;
+    const pct = Math.min(elapsed / CTRL_LOCK_HOLD_MS, 1);
+    const deg = Math.round(pct * 360);
+    if (_ctrlLockProgress) {
+      _ctrlLockProgress.style.background = `conic-gradient(rgba(250,204,21,0.4) ${deg}deg, transparent ${deg}deg)`;
+    }
+    if (pct < 1 && _ctrlLockTimer !== null) {
+      requestAnimationFrame(frame);
+    }
+  };
+  requestAnimationFrame(frame);
+
+  _ctrlLockTimer = setTimeout(() => {
+    _cancelLockHold();
+    toggleControlLock();
+  }, CTRL_LOCK_HOLD_MS);
+}
+
+function _cancelLockHold() {
+  if (_ctrlLockTimer !== null) {
+    clearTimeout(_ctrlLockTimer);
+    _ctrlLockTimer = null;
+  }
+  if (_ctrlLockProgress) {
+    _ctrlLockProgress.remove();
+    _ctrlLockProgress = null;
+  }
+}
+
+const lockBtn = $("btn-ctrl-lock");
+lockBtn.addEventListener("mousedown", _startLockHold);
+lockBtn.addEventListener("mouseup", _cancelLockHold);
+lockBtn.addEventListener("mouseleave", _cancelLockHold);
+lockBtn.addEventListener("touchstart", (e) => { e.preventDefault(); _startLockHold(); }, { passive: false });
+lockBtn.addEventListener("touchend", (e) => { e.preventDefault(); _cancelLockHold(); }, { passive: false });
+lockBtn.addEventListener("touchcancel", _cancelLockHold);
+
+// ============================================================
+//  Connection helpers
+// ============================================================
+function _doConnect() {
+  const url = $("srv-url").value.trim();
+  const userId = $("user-id").value.trim() || undefined;
+  const mediaCfg = getMediaSettings();
+  sdk = new OxLensClient({ url, userId, token: "kodeholic", ...mediaCfg });
+  bindSdkEvents(sdk);
+  isConnecting = true;
+  sdk.connect();
+  log("sys", `서버 연결: ${url}`);
+}
+
+// ============================================================
+//  Toast (우측 상단 스택 토스트)
+// ============================================================
+const TOAST_ICONS = {
+  info:    "ph-info",
+  ok:      "ph-check-circle",
+  warn:    "ph-warning",
+  err:     "ph-warning-circle",
+  media:   "ph-microphone",
+  signal:  "ph-wifi-high",
+  ice:     "ph-arrows-left-right",
+};
+const TOAST_COLORS = {
+  info:    "border-white/10 text-gray-300",
+  ok:      "border-white/10 text-gray-300",
+  warn:    "border-white/10 text-gray-300",
+  err:     "border-white/10 text-gray-300",
+  media:   "border-white/10 text-gray-300",
+  signal:  "border-white/10 text-gray-300",
+  ice:     "border-white/10 text-gray-300",
+};
+
+/**
+ * 토스트 표시. 우측 상단에 스택되며 durationMs 후 자동 제거.
+ * @param {string} type - info|ok|warn|err|media|signal|ice
+ * @param {string} msg
+ * @param {number} durationMs - 0이면 수동 제거
+ */
+function showToast(type, msg, durationMs = 3000) {
+  const container = $("toast-container");
+  const el = document.createElement("div");
+  const icon = TOAST_ICONS[type] || TOAST_ICONS.info;
+  const color = TOAST_COLORS[type] || TOAST_COLORS.info;
+  el.className = `flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-surface/95 backdrop-blur border text-xs font-mono shadow-lg toast-enter ${color}`;
+  el.innerHTML = `<i class="ph ${icon} text-sm shrink-0"></i><span>${msg}</span>`;
+  container.prepend(el);
+
+  if (durationMs > 0) {
+    setTimeout(() => {
+      el.classList.remove("toast-enter");
+      el.classList.add("toast-exit");
+      el.addEventListener("animationend", () => el.remove());
+    }, durationMs);
+  }
+  return el;
+}
+
+// ============================================================
+//  Fail Modal (범용 실패 모달)
+// ============================================================
+let _failRetryFn = null;
+
+function showFailModal(title, msg, retryFn) {
+  $("modal-fail-title").textContent = title;
+  $("modal-fail-msg").textContent = msg;
+  _failRetryFn = retryFn || null;
+  // 재시도 버튼: retryFn이 없으면 숨김
+  $("modal-fail-retry").classList.toggle("hidden", !retryFn);
+  $("modal-fail").classList.remove("hidden");
+}
+
+function hideFailModal() {
+  $("modal-fail").classList.add("hidden");
+  _failRetryFn = null;
+}
+
+$("modal-fail-cancel").onclick = () => {
+  hideFailModal();
+};
+
+$("modal-fail-retry").onclick = () => {
+  const fn = _failRetryFn;
+  hideFailModal();
+  if (fn) fn();
+};
+
+// ============================================================
 //  Settings panel toggle
 // ============================================================
 $("btn-settings").onclick = () => {
@@ -815,6 +1116,62 @@ function getMediaSettings() {
     maxBitrate: Number($("set-bitrate").value),
   };
 }
+
+// ============================================================
+//  Device Selection (장치 선택 UI)
+// ============================================================
+
+/** 설정 패널 드롭다운 3개를 장치 목록으로 갱신 */
+function updateDeviceSelects(devices) {
+  if (!devices || devices.length === 0) return;
+  _fillDeviceSelect($("set-mic"), devices.filter(d => d.kind === "audioinput"));
+  _fillDeviceSelect($("set-speaker"), devices.filter(d => d.kind === "audiooutput"));
+  _fillDeviceSelect($("set-camera"), devices.filter(d => d.kind === "videoinput"));
+}
+
+function _fillDeviceSelect(selectEl, list) {
+  if (!selectEl) return;
+  const prev = selectEl.value;
+  selectEl.innerHTML = '<option value="">기본 장치</option>';
+  for (const d of list) {
+    const opt = document.createElement("option");
+    opt.value = d.deviceId;
+    opt.textContent = d.label;
+    selectEl.appendChild(opt);
+  }
+  // 이전 선택값 복원 (장치가 아직 있으면)
+  if (prev && [...selectEl.options].some(o => o.value === prev)) {
+    selectEl.value = prev;
+  }
+}
+
+// 장치 드롭다운 변경 핸들러
+$("set-mic").onchange = async () => {
+  if (!sdk) return;
+  const id = $("set-mic").value;
+  if (id) {
+    await sdk.setAudioInput(id);
+    log("sys", `마이크 전환: ${$("set-mic").selectedOptions[0]?.textContent}`);
+  }
+};
+
+$("set-speaker").onchange = async () => {
+  if (!sdk) return;
+  const id = $("set-speaker").value;
+  if (id) {
+    await sdk.setAudioOutput(id);
+    log("sys", `스피커 전환: ${$("set-speaker").selectedOptions[0]?.textContent}`);
+  }
+};
+
+$("set-camera").onchange = async () => {
+  if (!sdk) return;
+  const id = $("set-camera").value;
+  if (id) {
+    await sdk.setVideoInput(id);
+    log("sys", `카메라 전환: ${$("set-camera").selectedOptions[0]?.textContent}`);
+  }
+};
 
 // ============================================================
 //  Init
@@ -846,3 +1203,10 @@ $("user-id").value = `U${String(Math.floor(Math.random() * 1000)).padStart(3, "0
   }
 })();
 log("sys", `Light LiveChat 클라이언트 준비 완료 (SDK v${SDK_VERSION})`);
+
+// ============================================================
+//  PWA Service Worker 등록
+// ============================================================
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}

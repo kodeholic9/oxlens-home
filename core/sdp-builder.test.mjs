@@ -2,7 +2,7 @@
  * sdp-builder.test.js — SdpBuilder 유닛테스트
  *
  * Node.js에서 직접 실행:
- *   node common/sdp-builder.test.js
+ *   node core/sdp-builder.test.mjs
  *
  * @author kodeholic (powered by Claude)
  */

@@ -1,5 +1,5 @@
 // author: kodeholic (powered by Claude)
-// livechat-sdk.js — Light LiveChat Client SDK (2PC / SDP-free)
+// client.js — OxLens Client SDK (2PC / SDP-free)
 //
 // Facade: 앱이 사용하는 Public API 제공.
 // 내부 모듈 조립: Signaling + MediaSession + Telemetry
@@ -10,16 +10,18 @@
 //                    audio=floor가 소유, video=사용자 toggle 허용
 //
 // 모듈 구조:
-//   constants.js    → 공용 상수 (OP, CONN, MUTE, FLOOR)
-//   signaling.js    → WS + 패킷 dispatch + Floor FSM
-//   media-session.js → Publish/Subscribe PC + 미디어
-//   telemetry.js    → stats 수집 + 서버 전송
-//   sdp-builder.js  → fake SDP 조립 (기존 유지)
+//   constants.js      → 공용 상수 (OP, CONN, MUTE, FLOOR, DEVICE_KIND)
+//   signaling.js      → WS + 패킷 dispatch + Floor FSM
+//   media-session.js   → Publish/Subscribe PC + 미디어
+//   device-manager.js  → 장치 열거/전환/핵플러그
+//   telemetry.js      → stats 수집 + 서버 전송
+//   sdp-builder.js    → fake SDP 조립 (기존 유지)
 
-import { SDK_VERSION, OP, CONN, MUTE, FLOOR, MUTE_ESCALATION_MS } from "./constants.js";
+import { SDK_VERSION, OP, CONN, MUTE, FLOOR, MUTE_ESCALATION_MS, DEVICE_KIND } from "./constants.js";
 import { Signaling } from "./signaling.js";
 import { MediaSession } from "./media-session.js";
 import { Telemetry } from "./telemetry.js";
+import { DeviceManager } from "./device-manager.js";
 
 // ============================================================
 //  EventEmitter
@@ -59,9 +61,9 @@ class EventEmitter {
 }
 
 // ============================================================
-//  LiveChatSDK — Public API Facade
+//  OxLensClient — Public API Facade
 // ============================================================
-export class LiveChatSDK extends EventEmitter {
+export class OxLensClient extends EventEmitter {
   constructor(opts) {
     super();
     this.url = opts.url;
@@ -82,6 +84,7 @@ export class LiveChatSDK extends EventEmitter {
     this.sig = new Signaling(this);
     this.media = new MediaSession(this);
     this.tel = new Telemetry(this);
+    this.device = new DeviceManager(this);
 
     // --- Mute 3-state (이 클래스에 내장 — sender/stream 직접 제어) ---
     this._muteState = { audio: MUTE.UNMUTED, video: MUTE.UNMUTED };
@@ -116,6 +119,7 @@ export class LiveChatSDK extends EventEmitter {
 
   disconnect() {
     this.tel.stop();
+    this.device.stop();
     this.media.teardown();
     this._resetMute();
     this.sig.disconnect();
@@ -134,6 +138,8 @@ export class LiveChatSDK extends EventEmitter {
     this._roomId = roomId;
     this._enableVideo = enableVideo;
 
+    this.emit("join:phase", { phase: "media" }); // 카메라/마이크 준비
+
     try {
       await this.media.acquireMedia(enableVideo);
     } catch (e) {
@@ -141,6 +147,10 @@ export class LiveChatSDK extends EventEmitter {
       return;
     }
 
+    // getUserMedia 성공 후 장치 감시 시작 (label 노출 보장)
+    await this.device.start();
+
+    this.emit("join:phase", { phase: "signaling" }); // 서버 입장 요청
     this.sig.send(OP.ROOM_JOIN, { room_id: roomId });
   }
 
@@ -149,6 +159,7 @@ export class LiveChatSDK extends EventEmitter {
     this.sig.onLeaveRoom();
     this.sig.send(OP.ROOM_LEAVE, { room_id: this._roomId });
     this.tel.stop();
+    this.device.stop();
     this.media.teardown();
     this._resetMute();
     const leftRoom = this._roomId;
@@ -165,12 +176,22 @@ export class LiveChatSDK extends EventEmitter {
 
   async switchCamera() { return this.media.switchCamera(); }
 
+  // ── Device ──
+
+  getDevices(kind) { return this.device.getDevices(kind); }
+  async refreshDevices() { return this.device.refreshDevices(); }
+  async setAudioInput(deviceId) { return this.device.setAudioInput(deviceId); }
+  async setAudioOutput(deviceId) { return this.device.setAudioOutput(deviceId); }
+  async setVideoInput(deviceId) { return this.device.setVideoInput(deviceId); }
+  addOutputElement(el) { this.device.addOutputElement(el); }
+  removeOutputElement(el) { this.device.removeOutputElement(el); }
+
   // ── Floor Control (MCPTT/MBCP) ──
 
   floorRequest() { this.sig.floorRequest(); }
   floorRelease() { this.sig.floorRelease(); }
 
-  static PTT_HARD_MUTE_MS = 60_000; // soft_off 60초 후 hard_off 에스컬레이션
+  static PTT_HARD_MUTE_MS = 60_000; // soft_off 60초 후 hard_off 에스컬레이션 (OxLensClient.PTT_HARD_MUTE_MS)
 
   // ════════════════════════════════════════════════════════════
   //  PTT 선언적 미디어 제어
@@ -247,7 +268,7 @@ export class LiveChatSDK extends EventEmitter {
       clearTimeout(this._pttTimers[kind]);
       this._pttTimers[kind] = setTimeout(() => {
         this._pttHardMuteEscalate(kind);
-      }, LiveChatSDK.PTT_HARD_MUTE_MS);
+      }, OxLensClient.PTT_HARD_MUTE_MS);
     }
     // wantOn && cur === "live" → 이미 켜짐, noop
     // !wantOn && cur !== "live" → 이미 꺼짐, noop
@@ -280,6 +301,7 @@ export class LiveChatSDK extends EventEmitter {
     const sender = kind === "audio" ? this.media.audioSender : this.media.videoSender;
     if (!sender) return;
 
+    const gen = ++this._unmuteGeneration[kind];
     const mc = this.mediaConfig;
     const constraints = kind === "audio"
       ? { audio: true, video: false }
@@ -294,6 +316,13 @@ export class LiveChatSDK extends EventEmitter {
     }
 
     const newTrack = kind === "audio" ? newStream.getAudioTracks()[0] : newStream.getVideoTracks()[0];
+
+    // 세대 가드: 비동기 대기 중 disconnect/teardown이 끼어들었으면 중단
+    if (this._unmuteGeneration[kind] !== gen || !this.media.audioSender) {
+      console.warn(`[SDK] PTT hard unmute aborted (teardown during getUserMedia): kind=${kind}`);
+      newTrack.stop();
+      return;
+    }
 
     this._destroyDummyTrack(kind);
     await sender.replaceTrack(newTrack);
@@ -558,4 +587,4 @@ export class LiveChatSDK extends EventEmitter {
 // ============================================================
 //  Exports — app.js 하위 호환
 // ============================================================
-export { SDK_VERSION, CONN, OP, MUTE, FLOOR };
+export { SDK_VERSION, CONN, OP, MUTE, FLOOR, DEVICE_KIND };

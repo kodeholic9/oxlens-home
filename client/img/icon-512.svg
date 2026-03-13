@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#0B0F19"/>
+  <text x="256" y="250" text-anchor="middle" font-family="monospace" font-weight="800" font-size="100"><tspan fill="#E45B25">0x</tspan><tspan fill="#FFFFFF">LENS</tspan></text>
+  <text x="256" y="340" text-anchor="middle" font-family="monospace" font-weight="400" font-size="36" fill="#4B5563">[0x4C 0x45 0x4E 0x53]</text>
+</svg>

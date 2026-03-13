@@ -11,6 +11,12 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
     <title>0xLENS — LiveChat</title>
+    <!-- PWA -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0B0F19">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="img/icon-192.svg">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
@@ -60,6 +66,20 @@
         background-color: #334155;
         border-radius: 2px;
       }
+      select:disabled, input:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      @keyframes toast-in {
+        from { opacity: 0; transform: translateX(100%); }
+        to   { opacity: 1; transform: translateX(0); }
+      }
+      @keyframes toast-out {
+        from { opacity: 1; transform: translateX(0); }
+        to   { opacity: 0; transform: translateX(100%); }
+      }
+      .toast-enter { animation: toast-in 0.25s ease-out; }
+      .toast-exit  { animation: toast-out 0.25s ease-in forwards; }
       .conf-tile {
         background: #151B2B;
         border-radius: 0.75rem;
@@ -133,8 +153,8 @@
         <div class="flex items-center gap-2">
           <span
             id="ws-badge"
-            class="px-2 py-0.5 rounded text-xs font-medium font-mono bg-brand-surface text-gray-500 border border-white/10"
-            >DISCONNECTED</span
+            class="px-2 py-0.5 rounded text-xs font-medium font-mono flex items-center gap-1 bg-brand-surface text-gray-500 border border-white/10"
+            ><i class="ph ph-wifi-slash text-sm"></i><span>OFF</span></span
           >
           <button
             id="btn-settings"
@@ -201,8 +221,38 @@
             <option value="0">제한 없음</option>
           </select>
         </div>
+        <!-- 장치 선택 -->
+        <div class="pt-2 border-t border-white/5 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-gray-400 font-medium flex items-center gap-1.5">
+              <i class="ph ph-microphone text-sm text-brand-cyan/70"></i>
+              마이크
+            </span>
+            <select id="set-mic" class="bg-brand-dark border border-white/10 rounded px-2 py-1 text-xs text-white font-mono max-w-[200px] truncate">
+              <option value="">기본 장치</option>
+            </select>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-gray-400 font-medium flex items-center gap-1.5">
+              <i class="ph ph-speaker-high text-sm text-brand-cyan/70"></i>
+              스피커
+            </span>
+            <select id="set-speaker" class="bg-brand-dark border border-white/10 rounded px-2 py-1 text-xs text-white font-mono max-w-[200px] truncate">
+              <option value="">기본 장치</option>
+            </select>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-gray-400 font-medium flex items-center gap-1.5">
+              <i class="ph ph-video-camera text-sm text-brand-cyan/70"></i>
+              카메라
+            </span>
+            <select id="set-camera" class="bg-brand-dark border border-white/10 rounded px-2 py-1 text-xs text-white font-mono max-w-[200px] truncate">
+              <option value="">기본 장치</option>
+            </select>
+          </div>
+        </div>
         <p class="text-xs text-gray-500">
-          ※ 변경 사항은 다음 입장 시 적용됩니다.
+          ※ 해상도/프레임/비트레이트는 다음 입장 시, 장치 전환은 즉시 적용
         </p>
       </div>
     </div>
@@ -311,8 +361,17 @@
         id="conf-controls"
         class="flex-none bg-brand-surface rounded-lg border border-white/10 px-4 py-2.5 flex items-center justify-between opacity-30 pointer-events-none"
       >
-          <!-- 좌측 그룹: 긴급발언 + 카메라 전환 -->
+          <!-- 좌측 그룹: 잠금 + 긴급발언 + 카메라 전환 -->
           <div class="flex items-center gap-2">
+            <!-- 컨트롤 잠금 (포켓 오작동 방지) -->
+            <button
+              id="btn-ctrl-lock"
+              class="w-11 h-11 rounded-full bg-brand-surface border border-white/10 text-gray-400 flex items-center justify-center transition-colors hover:bg-white/5 relative overflow-hidden"
+              title="컨트롤 잠금"
+            >
+              <i id="icon-lock-off" class="ph ph-lock-simple-open text-lg"></i>
+              <i id="icon-lock-on" class="ph ph-lock-simple text-lg hidden"></i>
+            </button>
             <!-- 긴급발언 토글 (PTT 모드에서만 표시) -->
             <button
               id="btn-ptt-lock"
@@ -540,6 +599,24 @@
         </div>
       </div>
     </main>
+
+    <!-- 토스트 컨테이너 (우측 상단, 스택) -->
+    <div id="toast-container" class="fixed top-16 right-4 z-40 flex flex-col-reverse gap-2 pointer-events-none" style="max-width: 280px"></div>
+
+    <!-- 범용 실패 모달 -->
+    <div id="modal-fail" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      <div class="bg-brand-surface border border-white/10 rounded-xl shadow-2xl p-6 max-w-xs w-full mx-4 space-y-4">
+        <div class="flex items-center gap-2 text-red-400">
+          <i class="ph ph-warning-circle text-2xl"></i>
+          <span id="modal-fail-title" class="font-bold text-sm">오류</span>
+        </div>
+        <p id="modal-fail-msg" class="text-xs text-gray-400"></p>
+        <div class="flex gap-2">
+          <button id="modal-fail-cancel" class="flex-1 px-3 py-2 rounded-lg bg-brand-dark border border-white/10 text-gray-400 text-xs font-medium hover:bg-white/5 transition-colors">닫기</button>
+          <button id="modal-fail-retry" class="flex-1 px-3 py-2 rounded-lg bg-brand-rust text-white text-xs font-bold hover:bg-brand-rust/80 transition-colors">재시도</button>
+        </div>
+      </div>
+    </div>
 
     <audio id="remote-audio" autoplay playsinline style="display: none"></audio>
     <script type="module" src="./app.js"></script>

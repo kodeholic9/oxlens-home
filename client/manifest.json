@@ -1,0 +1,24 @@
+{
+  "name": "0xLENS LiveChat",
+  "short_name": "0xLENS",
+  "description": "WebRTC 기반 실시간 미디어 커뮤니케이션",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#0B0F19",
+  "background_color": "#0B0F19",
+  "icons": [
+    {
+      "src": "img/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "img/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -8,7 +8,7 @@
 //   - Floor Control 4-state 상태 머신 (MCPTT/MBCP §6.2.4)
 //   - Floor PING 타이머
 //
-// sdk 참조를 통해:
+// client(OxLensClient) 참조를 통해:
 //   - sdk.emit() — 앱으로 이벤트 전파
 //   - sdk._onJoinOk() / sdk._onTracksUpdate() — 미디어/텔레메트리 조율
 

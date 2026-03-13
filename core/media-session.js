@@ -191,8 +191,10 @@ export class MediaSession {
       console.log(`[DBG:ICE] pub iceConnectionState=${this._pubPc.iceConnectionState}`);
       this.sdk.emit("media:ice", { pc: "publish", state: this._pubPc.iceConnectionState });
     };
-    this._pubPc.onconnectionstatechange = () =>
+    this._pubPc.onconnectionstatechange = () => {
       console.log(`[DBG:ICE] pub connectionState=${this._pubPc.connectionState}`);
+      this.sdk.emit("media:conn", { pc: "publish", state: this._pubPc.connectionState });
+    };
     this._pubPc.onicegatheringstatechange = () =>
       console.log(`[DBG:ICE] pub gatheringState=${this._pubPc.iceGatheringState}`);
     this._pubPc.onicecandidate = (e) => {
@@ -252,8 +254,10 @@ export class MediaSession {
         console.log(`[DBG:ICE] sub iceConnectionState=${this._subPc.iceConnectionState}`);
         this.sdk.emit("media:ice", { pc: "subscribe", state: this._subPc.iceConnectionState });
       };
-      this._subPc.onconnectionstatechange = () =>
+      this._subPc.onconnectionstatechange = () => {
         console.log(`[DBG:ICE] sub connectionState=${this._subPc.connectionState}`);
+        this.sdk.emit("media:conn", { pc: "subscribe", state: this._subPc.connectionState });
+      };
       this._subPc.onicegatheringstatechange = () =>
         console.log(`[DBG:ICE] sub gatheringState=${this._subPc.iceGatheringState}`);
       this._subPc.onicecandidate = (e) => {
