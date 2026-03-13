@@ -2,7 +2,7 @@
 // livechat-client/app.js — Light LiveChat 클라이언트 UI
 // SDK 이벤트 구독으로만 동작 — 비즈니스 로직 Zero
 
-import { OxLensClient, CONN, FLOOR, SDK_VERSION, DEVICE_KIND } from "../core/client.js";
+import { OxLensClient, CONN, FLOOR, SDK_VERSION, DEVICE_KIND } from "../../core/client.js";
 
 // ============================================================
 //  DOM

@@ -245,8 +245,8 @@ export class Telemetry {
   start() {
     this.stop();
     this._prevStats = {
-      pub: new Map(),
-      sub: new Map(),
+      pub: new Map(),   // bytes: `pub_${ssrc}` / pkts: `pkt_${ssrc}` / rtx: `rtx_${ssrc}` / nack: `nack_${ssrc}`
+      sub: new Map(),   // bytes: `sub_${ssrc}` / lost: `lost_${ssrc}` / nack: `nack_${ssrc}`
       jb: new Map(),
       qld: new Map(),   // qualityLimitationDurations 이전값 (SSRC별)
     };
@@ -342,12 +342,32 @@ export class Telemetry {
           this._prevStats.qld.set(qldKey, { ...curQld });
         }
 
+        // --- packetsSent delta ---
+        const prevPkts = this._prevStats?.pub.get(`pkt_${r.ssrc}`) || 0;
+        const deltaPackets = Math.max(0, (r.packetsSent || 0) - prevPkts);
+        if (this._prevStats) this._prevStats.pub.set(`pkt_${r.ssrc}`, r.packetsSent || 0);
+
+        // --- retransmittedPacketsSent delta ---
+        const prevRtx = this._prevStats?.pub.get(`rtx_${r.ssrc}`) || 0;
+        const deltaRtx = Math.max(0, (r.retransmittedPacketsSent || 0) - prevRtx);
+        if (this._prevStats) this._prevStats.pub.set(`rtx_${r.ssrc}`, r.retransmittedPacketsSent || 0);
+
+        // --- nackCount delta (pub: 내가 받은 NACK 수) ---
+        const prevNackPub = this._prevStats?.pub.get(`nack_${r.ssrc}`) || 0;
+        const deltaNackPub = Math.max(0, (r.nackCount || 0) - prevNackPub);
+        if (this._prevStats) this._prevStats.pub.set(`nack_${r.ssrc}`, r.nackCount || 0);
+
         result.outbound.push({
           kind: r.kind, ssrc: r.ssrc,
-          packetsSent: r.packetsSent, bytesSent: r.bytesSent, bitrate,
-          nackCount: r.nackCount || 0, pliCount: r.pliCount || 0,
+          packetsSent: r.packetsSent,
+          packetsSentDelta: deltaPackets,
+          bytesSent: r.bytesSent, bitrate,
+          nackCount: r.nackCount || 0,
+          nackCountDelta: deltaNackPub,
+          pliCount: r.pliCount || 0,
           targetBitrate: r.targetBitrate || null,
           retransmittedPacketsSent: r.retransmittedPacketsSent || 0,
+          retransmittedPacketsSentDelta: deltaRtx,
           framesEncoded: r.framesEncoded || null,
           framesSent: r.framesSent || null,
           hugeFramesSent: r.hugeFramesSent || null,
@@ -404,12 +424,38 @@ export class Telemetry {
           this._prevStats.jb.set(jbKey, { delay: curDelay, emitted: curEmitted });
         }
 
+        // --- packetsLost delta ---
+        const prevLost = this._prevStats?.sub.get(`lost_${r.ssrc}`) || 0;
+        const deltaLost = Math.max(0, (r.packetsLost || 0) - prevLost);
+        if (this._prevStats) this._prevStats.sub.set(`lost_${r.ssrc}`, r.packetsLost || 0);
+
+        // --- packetsReceived delta ---
+        const prevRecv = this._prevStats?.sub.get(`recv_${r.ssrc}`) || 0;
+        const deltaRecv = Math.max(0, (r.packetsReceived || 0) - prevRecv);
+        if (this._prevStats) this._prevStats.sub.set(`recv_${r.ssrc}`, r.packetsReceived || 0);
+
+        // --- nackCount delta (sub: 내가 보낸 NACK 수) ---
+        const prevNackSub = this._prevStats?.sub.get(`nack_${r.ssrc}`) || 0;
+        const deltaNackSub = Math.max(0, (r.nackCount || 0) - prevNackSub);
+        if (this._prevStats) this._prevStats.sub.set(`nack_${r.ssrc}`, r.nackCount || 0);
+
+        // --- delta 손실율 (0~100, 소수점 1자리) ---
+        const deltaTotal = deltaRecv + deltaLost;
+        const deltaLossRate = deltaTotal > 0
+          ? Math.round((deltaLost / deltaTotal) * 1000) / 10
+          : 0;
+
         result.inbound.push({
           kind: r.kind, ssrc: r.ssrc, sourceUser,
-          packetsReceived: r.packetsReceived, packetsLost: r.packetsLost,
+          packetsReceived: r.packetsReceived,
+          packetsReceivedDelta: deltaRecv,
+          packetsLost: r.packetsLost,
+          packetsLostDelta: deltaLost,
+          lossRateDelta: deltaLossRate,
           bytesReceived: r.bytesReceived || 0, bitrate,
           jitter: r.jitter != null ? r.jitter : null,
           nackCount: r.nackCount || 0,
+          nackCountDelta: deltaNackSub,
           jitterBufferDelay: jbDelayMs,
           jitterBufferEmittedCount: r.jitterBufferEmittedCount || null,
           framesDecoded: r.framesDecoded || null,
