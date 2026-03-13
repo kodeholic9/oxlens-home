@@ -48,6 +48,7 @@ export function renderServerMetrics() {
   html += '<div class="grid grid-cols-2 gap-1 text-[11px]">';
   [
     ["nack", m.nack_received],
+    ["nack_seqs", m.nack_seqs_requested],
     ["rtx", m.rtx_sent],
     ["miss", m.rtx_cache_miss],
     ["pli", m.pli_sent],

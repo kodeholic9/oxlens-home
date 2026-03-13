@@ -45,6 +45,20 @@ export function renderDetail() {
     </div>`;
   }
 
+  // P1: subscribe 트랙 카운트 — 누락 감지용
+  if (tel.subTracks) {
+    const st = tel.subTracks;
+    const warnCls = st.inactive > 0 ? "text-yellow-400" : "text-gray-400";
+    html += `<div class="px-2 py-1 bg-brand-dark rounded text-[11px] mb-3 flex justify-between">
+      <span class="text-gray-400">Sub Tracks</span>
+      <span class="font-mono">
+        <span class="text-green-400">${st.active} active</span>
+        <span class="${warnCls}"> / ${st.inactive} inactive</span>
+        <span class="text-gray-500"> (total ${st.total})</span>
+      </span>
+    </div>`;
+  }
+
   if (tel.codecs && tel.codecs.length > 0) {
     html +=
       '<div class="text-[10px] text-gray-500 uppercase tracking-wider font-mono mb-1.5">코덱 상태</div>';
@@ -241,20 +255,28 @@ function renderLossCrossRef(userId, tel) {
       const subRecvDelta = ib.packetsReceivedDelta ?? 0;
       const subLostDelta = ib.packetsLostDelta ?? 0;
 
-      const abLoss = Math.max(0, pubDelta - (subRecvDelta + subLostDelta));
-      const abLossRate =
-        pubDelta > 0 ? ((abLoss / pubDelta) * 100).toFixed(1) : "0.0";
+      // P3: delta 미지원 클라이언트 방어
+      // delta=0이고 누적값>0이면 구버전 클라이언트 — "N/A" 표시
+      const pubNoDelta = pubDelta === 0 && (pub.packetsSent ?? 0) > 0;
+      const subNoDelta = subRecvDelta === 0 && subLostDelta === 0 && (ib.packetsReceived ?? 0) > 0;
 
-      const bcLossRate =
-        subRecvDelta + subLostDelta > 0
+      const abLoss = Math.max(0, pubDelta - (subRecvDelta + subLostDelta));
+      const abLossRate = pubNoDelta
+        ? "N/A"
+        : pubDelta > 0 ? ((abLoss / pubDelta) * 100).toFixed(1) : "0.0";
+
+      const bcLossRate = subNoDelta
+        ? "N/A"
+        : subRecvDelta + subLostDelta > 0
           ? ((subLostDelta / (subRecvDelta + subLostDelta)) * 100).toFixed(1)
           : "0.0";
 
-      // NACK hit rate: 방 전체 집계 (user별 귀속 불가)
+      // P2: NACK hit rate — nack_seqs_requested 기준 (방 전체 집계, user별 귀속 불가)
       const sfuRtx = sfu?.rtx_sent ?? 0;
+      const sfuNackSeqs = sfu?.nack_seqs_requested ?? 0;
       const sfuNackRecv = sfu?.nack_received ?? 0;
       const nackHitRate =
-        sfuNackRecv > 0 ? ((sfuRtx / sfuNackRecv) * 100).toFixed(0) : null;
+        sfuNackSeqs > 0 ? ((sfuRtx / sfuNackSeqs) * 100).toFixed(0) : null;
       const clientNackDelta = ib.nackCountDelta ?? 0;
 
       matches.push({
@@ -268,6 +290,7 @@ function renderLossCrossRef(userId, tel) {
         bcLossRate,
         clientNackDelta,
         sfuRtx,
+        sfuNackSeqs,
         sfuNackRecv,
         nackHitRate,
       });
@@ -280,10 +303,12 @@ function renderLossCrossRef(userId, tel) {
     '<div class="text-[10px] text-gray-500 uppercase tracking-wider font-mono mb-1.5 mt-2">구간별 손실 (델타/3s)</div>';
   h += '<div class="space-y-1 mb-4">';
   matches.forEach((m) => {
-    const abCls =
-      parseFloat(m.abLossRate) > 1 ? "text-yellow-400" : "text-gray-400";
-    const bcCls =
-      parseFloat(m.bcLossRate) > 1 ? "text-red-400" : "text-gray-400";
+    const abIsNA = m.abLossRate === "N/A";
+    const abCls = abIsNA ? "text-gray-600 italic"
+      : parseFloat(m.abLossRate) > 1 ? "text-yellow-400" : "text-gray-400";
+    const bcIsNA = m.bcLossRate === "N/A";
+    const bcCls = bcIsNA ? "text-gray-600 italic"
+      : parseFloat(m.bcLossRate) > 1 ? "text-red-400" : "text-gray-400";
     const hitNum = m.nackHitRate != null ? parseInt(m.nackHitRate) : 100;
     const hitCls =
       hitNum < 50
@@ -299,10 +324,10 @@ function renderLossCrossRef(userId, tel) {
         <span class="text-gray-500">${m.pubDelta}/3s 전송</span>
       </div>
       <div class="flex gap-4 flex-wrap">
-        <span><span class="text-gray-500">A→SFU:</span> <span class="${abCls}">${m.abLossRate}%</span></span>
-        <span><span class="text-gray-500">SFU→B:</span> <span class="${bcCls}">${m.bcLossRate}%</span></span>
+        <span><span class="text-gray-500">A→SFU:</span> <span class="${abCls}">${abIsNA ? m.abLossRate : m.abLossRate + '%'}</span></span>
+        <span><span class="text-gray-500">SFU→B:</span> <span class="${bcCls}">${bcIsNA ? m.bcLossRate : m.bcLossRate + '%'}</span></span>
         <span><span class="text-gray-500">NACK hit:</span> <span class="${hitCls}">${hitStr}</span>
-          <span class="text-gray-600 text-[10px]"> cli:${m.clientNackDelta} srv_recv:${m.sfuNackRecv} rtx:${m.sfuRtx}</span>
+          <span class="text-gray-600 text-[10px]"> cli:${m.clientNackDelta} seqs:${m.sfuNackSeqs} rtx:${m.sfuRtx}</span>
         </span>
       </div>
     </div>`;

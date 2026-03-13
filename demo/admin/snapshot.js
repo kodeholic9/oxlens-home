@@ -153,19 +153,22 @@ export function buildSnapshot() {
         const pubDelta = pub.packetsSentDelta ?? 0;
         const subRecvDelta = ib.packetsReceivedDelta ?? 0;
         const subLostDelta = ib.packetsLostDelta ?? 0;
+        // P3: delta 미지원 방어
+        const pubNoDelta = pubDelta === 0 && (pub.packetsSent ?? 0) > 0;
+        const subNoDelta = subRecvDelta === 0 && subLostDelta === 0 && (ib.packetsReceived ?? 0) > 0;
         const abLoss = Math.max(0, pubDelta - (subRecvDelta + subLostDelta));
-        const abRate =
-          pubDelta > 0 ? ((abLoss / pubDelta) * 100).toFixed(1) : "0.0";
-        const bcRate =
-          subRecvDelta + subLostDelta > 0
+        const abRate = pubNoDelta ? "N/A"
+          : pubDelta > 0 ? ((abLoss / pubDelta) * 100).toFixed(1) : "0.0";
+        const bcRate = subNoDelta ? "N/A"
+          : subRecvDelta + subLostDelta > 0
             ? ((subLostDelta / (subRecvDelta + subLostDelta)) * 100).toFixed(1)
             : "0.0";
         const sfuRtx = sfu?.rtx_sent ?? 0;
-        const sfuNack = sfu?.nack_received ?? 0;
+        const sfuNackSeqs = sfu?.nack_seqs_requested ?? 0;
         const hitRate =
-          sfuNack > 0 ? ((sfuRtx / sfuNack) * 100).toFixed(0) + "%" : "N/A";
+          sfuNackSeqs > 0 ? ((sfuRtx / sfuNackSeqs) * 100).toFixed(0) + "%" : "N/A";
         L.push(
-          `[${uid}→${otherUid}:${ib.kind}] pub_delta=${pubDelta} sub_recv_delta=${subRecvDelta} sub_lost_delta=${subLostDelta} A→SFU=${abRate}% SFU→B=${bcRate}% nack_hit=${hitRate}(sfu_recv=${sfuNack} rtx=${sfuRtx})`,
+          `[${uid}→${otherUid}:${ib.kind}] pub_delta=${pubDelta} sub_recv_delta=${subRecvDelta} sub_lost_delta=${subLostDelta} A→SFU=${abRate}% SFU→B=${bcRate}% nack_hit=${hitRate}(seqs=${sfuNackSeqs} rtx=${sfuRtx})`,
         );
       });
     });
@@ -237,7 +240,7 @@ export function buildSnapshot() {
     L.push(`[server] egress_encrypt: ${f(m.egress_encrypt)}`);
     L.push(`[server] lock_wait: ${f(m.lock_wait)}`);
     L.push(
-      `[server] nack_recv=${m.nack_received} rtx_sent=${m.rtx_sent} rtx_miss=${m.rtx_cache_miss} pli_sent=${m.pli_sent} sr_relay=${m.sr_relayed} rr_relay=${m.rr_relayed} twcc_fb=${m.twcc_sent} twcc_rec=${m.twcc_recorded} remb=${m.remb_sent}`,
+      `[server] nack_recv=${m.nack_received} nack_seqs=${m.nack_seqs_requested} rtx_sent=${m.rtx_sent} rtx_miss=${m.rtx_cache_miss} pli_sent=${m.pli_sent} sr_relay=${m.sr_relayed} rr_relay=${m.rr_relayed} twcc_fb=${m.twcc_sent} twcc_rec=${m.twcc_recorded} remb=${m.remb_sent}`,
     );
     L.push(
       `[server:rtx_diag] cache_stored=${m.rtp_cache_stored ?? 0} pub_not_found=${m.nack_pub_not_found ?? 0} no_rtx=${m.nack_no_rtx ?? 0} lock_fail=${m.cache_lock_fail ?? 0} egress_drop=${m.egress_drop ?? 0}`,

@@ -287,6 +287,14 @@ export class Telemetry {
       // 구간 P: PTT 진단 (트랙/인코더/PC 건강성)
       telemetry.ptt = this._collectPttDiagnostics();
 
+      // P1: subscribe 트랙 카운트 — 누락 감지용
+      const subTracks = media.subscribeTracks || [];
+      telemetry.subTracks = {
+        total: subTracks.length,
+        active: subTracks.filter(t => t.active !== false).length,
+        inactive: subTracks.filter(t => t.active === false).length,
+      };
+
       // 이벤트 타임라인 (이번 tick에서 감지된 이벤트)
       if (this._pendingEvents.length > 0) {
         telemetry.events = this._pendingEvents;

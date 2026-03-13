@@ -288,6 +288,11 @@ function handleClientTelemetry(msg) {
         }));
       }
 
+      // P1: subTracks 카운트
+      if (data.subTracks) {
+        snap.subTracks = data.subTracks;
+      }
+
       pushUserSnapshot(user_id, snap);
     }
 
