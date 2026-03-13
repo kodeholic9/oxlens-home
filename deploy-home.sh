@@ -20,7 +20,7 @@ GIT_BRANCH="main"
 # 배포 대상 (정적 파일만)
 DEPLOY_TARGETS=(
     "index.html"
-    "common"
+    "core"
     "client"
     "admin"
     "docs"
@@ -100,10 +100,10 @@ do_patch() {
         ok "  ${target}"
     done
 
-    # 5. deprecated 파일 정리 (sfu-client.js)
-    if [ -f "${DEPLOY_DIR}/common/sfu-client.js" ]; then
-        sudo rm -f "${DEPLOY_DIR}/common/sfu-client.js"
-        info "  sfu-client.js 제거 (deprecated)"
+    # 5. deprecated 정리 (common/ → core/ 전환 잔여물)
+    if [ -d "${DEPLOY_DIR}/common" ]; then
+        sudo rm -rf "${DEPLOY_DIR}/common"
+        info "  common/ 제거 (core/로 전환됨)"
     fi
 
     # 6. 권한 설정
