@@ -1107,14 +1107,17 @@ $("btn-settings").onclick = () => {
   $("settings-panel").classList.toggle("hidden");
 };
 
+const MEDIA_PRESETS = {
+  eco:    { width: 640,  height: 480,  frameRate: 15, maxBitrate:   300_000 },
+  normal: { width: 640,  height: 480,  frameRate: 24, maxBitrate:   500_000 },
+  hd:     { width: 1280, height: 720,  frameRate: 24, maxBitrate: 1_500_000 },
+  "hd+":  { width: 1280, height: 720,  frameRate: 30, maxBitrate: 2_000_000 },
+  fhd:    { width: 1920, height: 1080, frameRate: 30, maxBitrate: 2_500_000 },
+};
+
 function getMediaSettings() {
-  const [w, h] = $("set-resolution").value.split("x").map(Number);
-  return {
-    width: w,
-    height: h,
-    frameRate: Number($("set-fps").value),
-    maxBitrate: Number($("set-bitrate").value),
-  };
+  const key = $("set-preset").value;
+  return { ...MEDIA_PRESETS[key] || MEDIA_PRESETS.hd };
 }
 
 // ============================================================

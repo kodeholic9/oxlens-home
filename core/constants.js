@@ -4,7 +4,7 @@
 // 여러 모듈(signaling, media-session, telemetry, livechat-sdk)이 공유하는 상수.
 // 순환 의존 방지를 위해 독립 파일로 분리.
 
-export const SDK_VERSION = "0.6.1";
+export const SDK_VERSION = "0.6.2";
 
 // ============================================================
 //  Opcodes — light-livechat signaling protocol (2PC/SDP-free)
@@ -63,10 +63,10 @@ export const CONN = Object.freeze({
 //  MBCP "U: queued"          → 큐 미지원, 의도적 생략
 // ============================================================
 export const FLOOR = Object.freeze({
-  IDLE:       "idle",        // 아무도 안 말함, PTT 가능
-  REQUESTING: "requesting",  // PTT 눌림, 서버 응답 대기
-  TALKING:    "talking",     // 내가 발화 중
-  LISTENING:  "listening",   // 타인 발화 중, PTT 가능(deny 될 수 있음)
+  IDLE: "idle", // 아무도 안 말함, PTT 가능
+  REQUESTING: "requesting", // PTT 눌림, 서버 응답 대기
+  TALKING: "talking", // 내가 발화 중
+  LISTENING: "listening", // 타인 발화 중, PTT 가능(deny 될 수 있음)
 });
 
 // ============================================================
@@ -88,7 +88,7 @@ export const MUTE_ESCALATION_MS = 5000;
 //  DeviceManager 이벤트
 // ============================================================
 export const DEVICE_KIND = Object.freeze({
-  AUDIO_INPUT:  "audioinput",
+  AUDIO_INPUT: "audioinput",
   AUDIO_OUTPUT: "audiooutput",
-  VIDEO_INPUT:  "videoinput",
+  VIDEO_INPUT: "videoinput",
 });

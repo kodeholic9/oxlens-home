@@ -188,37 +188,16 @@
     >
       <div class="max-w-lg mx-auto space-y-3">
         <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-400 font-medium">해상도</span>
+          <span class="text-xs text-gray-400 font-medium">화질</span>
           <select
-            id="set-resolution"
+            id="set-preset"
             class="bg-brand-dark border border-white/10 rounded px-2 py-1 text-xs text-white font-mono"
           >
-            <option value="640x480">640×480</option>
-            <option value="1280x720" selected>1280×720</option>
-            <option value="1920x1080">1920×1080</option>
-          </select>
-        </div>
-        <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-400 font-medium">프레임레이트</span>
-          <select
-            id="set-fps"
-            class="bg-brand-dark border border-white/10 rounded px-2 py-1 text-xs text-white font-mono"
-          >
-            <option value="15">15 fps</option>
-            <option value="24" selected>24 fps</option>
-            <option value="30">30 fps</option>
-          </select>
-        </div>
-        <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-400 font-medium">비트레이트</span>
-          <select
-            id="set-bitrate"
-            class="bg-brand-dark border border-white/10 rounded px-2 py-1 text-xs text-white font-mono"
-          >
-            <option value="500000">500 kbps</option>
-            <option value="1500000" selected>1.5 Mbps</option>
-            <option value="2500000">2.5 Mbps</option>
-            <option value="0">제한 없음</option>
+            <option value="eco">절약 (480p/15fps/300kbps)</option>
+            <option value="normal">일반 (480p/24fps/500kbps)</option>
+            <option value="hd" selected>HD (720p/24fps/1.5Mbps)</option>
+            <option value="hd+">HD+ (720p/30fps/2Mbps)</option>
+            <option value="fhd">FHD (1080p/30fps/2.5Mbps)</option>
           </select>
         </div>
         <!-- 장치 선택 -->
@@ -252,7 +231,7 @@
           </div>
         </div>
         <p class="text-xs text-gray-500">
-          ※ 해상도/프레임/비트레이트는 다음 입장 시, 장치 전환은 즉시 적용
+          ※ 화질은 다음 입장 시, 장치 전환은 즉시 적용
         </p>
       </div>
     </div>
