@@ -335,6 +335,10 @@ export class OxLensClient extends EventEmitter {
     }
 
     this.emit("media:local", stream);
+
+    // video hard unmute → CAMERA_READY (서버가 PLI 2발 + VIDEO_RESUMED 브로드캐스트)
+    if (kind === "video") this._sendCameraReady();
+
     console.log(`[SDK] PTT hard unmute: ${kind}`);
   }
 
@@ -470,12 +474,23 @@ export class OxLensClient extends EventEmitter {
     this._notifyMuteServer(kind, false);
     this.emit("media:local", stream);
     this.emit("mute:changed", { kind, muted: false, phase: "hard" });
+
+    // video hard unmute → CAMERA_READY (서버가 PLI 2발 + VIDEO_RESUMED 브로드캐스트)
+    if (kind === "video") this._sendCameraReady();
+
     console.log(`[SDK] _doHardUnmute kind=${kind}`);
   }
 
   _notifyMuteServer(kind, muted) {
     const ssrc = this.media.getPublishSsrc(kind);
     if (ssrc) this.sig.send(OP.MUTE_UPDATE, { ssrc, muted });
+  }
+
+  /** 카메라 웜업 완료 → 서버에 CAMERA_READY 전송 (PLI 2발 + VIDEO_RESUMED 트리거) */
+  _sendCameraReady() {
+    if (!this._roomId) return;
+    this.sig.send(OP.CAMERA_READY, { room_id: this._roomId });
+    console.log("[SDK] CAMERA_READY sent");
   }
 
   // ── Dummy Track 팩토리 ──

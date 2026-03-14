@@ -22,6 +22,7 @@ export const OP = Object.freeze({
   ROOM_LEAVE: 12,
   PUBLISH_TRACKS: 15,
   MUTE_UPDATE: 17,
+  CAMERA_READY: 18,     // 카메라 웜업 완료 (첫 프레임 → PLI 트리거)
   MESSAGE: 20,
   TELEMETRY: 30,
 
@@ -35,6 +36,8 @@ export const OP = Object.freeze({
   TRACKS_UPDATE: 101,
   TRACK_STATE: 102,
   MESSAGE_EVENT: 103,
+  VIDEO_SUSPENDED: 104,  // 비디오 중단 (카메라 off) — UI avatar 전환
+  VIDEO_RESUMED: 105,    // 비디오 재개 (카메라 on) — UI 복원
 
   // Floor Control Events
   FLOOR_TAKEN: 141,

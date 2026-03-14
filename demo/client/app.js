@@ -414,6 +414,23 @@ function bindSdkEvents(s) {
     }
   });
 
+  // ── Video Suspended / Resumed (상대방 카메라 hard mute/unmute) ──
+  s.on("video:suspended", ({ user_id }) => {
+    const tile = $("conf-grid")?.querySelector(`[data-uid="${user_id}"]`);
+    if (tile) {
+      const video = tile.querySelector(".conf-video");
+      if (video) video.style.display = "none";
+      const avatar = tile.querySelector(".avatar");
+      if (avatar) avatar.style.display = "";
+    }
+    log("sys", `${user_id} 비디오 중단 (avatar 전환)`);
+  });
+
+  s.on("video:resumed", ({ user_id }) => {
+    tryAttachRemoteVideo(user_id);
+    log("sys", `${user_id} 비디오 재개`);
+  });
+
   // ── Media ──
   s.on("media:local", (stream) => {
     localStream = stream;

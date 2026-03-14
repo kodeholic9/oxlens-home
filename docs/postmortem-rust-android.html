@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="ko">
+<!--
+  @author: kodeholic (powered by Claude)
+  @description: 0xLENS Post-Mortem — Rust + Android + libwebrtc 크로스 바운더리 삽질기
+-->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>0xLENS — Post-Mortem: Rust Android Native SDK</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Pretendard', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        brand: { rust: '#E45B25', cyan: '#00F0FF', dark: '#0B0F19', surface: '#151B2B' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #0B0F19; color: #E2E8F0; }
+        .bg-grid {
+            background-size: 40px 40px;
+            background-image: linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+                              linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
+        }
+        .text-gradient { background: linear-gradient(to right, #E45B25, #FF8A50); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .text-gradient-cyan { background: linear-gradient(to right, #00F0FF, #60a5fa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .text-gradient-green { background: linear-gradient(to right, #22c55e, #4ade80); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .text-gradient-red { background: linear-gradient(to right, #ef4444, #f87171); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #0B0F19; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        .word-keep-all { word-break: keep-all; }
+        .timeline-line { position: absolute; left: 24px; top: 0; bottom: 0; width: 2px; background: linear-gradient(to bottom, #E45B25, #334155); }
+        .phase-card { transition: all 0.3s ease; }
+        .phase-card:hover { border-color: rgba(0,240,255,0.25); transform: translateY(-2px); }
+        .try-badge-fail { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: #f87171; }
+        .try-badge-ok { background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.3); color: #4ade80; }
+        .try-badge-pivot { background: rgba(251,191,36,0.15); border: 1px solid rgba(251,191,36,0.3); color: #fbbf24; }
+        .lesson-card { border-left: 3px solid #E45B25; }
+        .code-block { background: #1e293b; border: 1px solid #334155; border-radius: 8px; }
+    </style>
+</head>
+<body class="bg-grid min-h-screen">
+
+    <!-- Header -->
+    <header class="border-b border-slate-800">
+        <div class="max-w-5xl mx-auto px-6 py-8">
+            <div class="flex items-center gap-3 mb-4">
+                <span class="px-3 py-1 text-xs font-mono rounded-full bg-red-500/10 text-red-400 border border-red-500/20">POST-MORTEM</span>
+                <span class="px-3 py-1 text-xs font-mono rounded-full bg-slate-700/50 text-slate-400 border border-slate-600/30">2026-03-14</span>
+            </div>
+            <h1 class="text-3xl md:text-4xl font-extrabold font-mono mb-3">
+                <span class="text-gradient">Rust + Android + libwebrtc</span>
+            </h1>
+            <p class="text-lg text-slate-400 word-keep-all">
+                크로스 바운더리 삽질기 — 왜 실패했고, 무엇을 배웠고, 어디로 가는가
+            </p>
+        </div>
+    </header>
+
+    <main class="max-w-5xl mx-auto px-6 py-12 space-y-16">
+
+        <!-- ============================================== -->
+        <!-- Section 1: 무엇을 하려 했는가 -->
+        <!-- ============================================== -->
+        <section>
+            <h2 class="text-2xl font-bold font-mono mb-6">
+                <span class="text-gradient-cyan">01.</span> 무엇을 하려 했는가
+            </h2>
+            <div class="bg-brand-surface rounded-xl border border-slate-700/50 p-6 space-y-4">
+                <p class="text-slate-300 word-keep-all leading-relaxed">
+                    <strong class="text-white">목표:</strong> Rust 코어 하나로 Android / iOS / Desktop 모든 플랫폼에서
+                    동일한 PTT(Push-to-Talk) SDK를 제공한다.
+                </p>
+                <div class="code-block p-4 font-mono text-sm">
+                    <div class="text-slate-500 mb-2">// 구상했던 아키텍처</div>
+                    <div class="text-cyan-400">oxlens-sdk-core (Cargo workspace)</div>
+                    <div class="pl-4 text-slate-300">├── oxlens-core &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;— PTT 로직, 시그널링, SDP 빌더</div>
+                    <div class="pl-4 text-slate-300">├── oxlens-webrtc &nbsp;&nbsp;&nbsp;&nbsp;— libwebrtc Safe Rust 래퍼</div>
+                    <div class="pl-4 text-slate-300">├── oxlens-webrtc-sys — C++ FFI (livekit webrtc-sys)</div>
+                    <div class="pl-4 text-orange-400">└── oxlens-jni &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;— Android JNI 브릿지 (cdylib)</div>
+                </div>
+                <p class="text-slate-300 word-keep-all leading-relaxed">
+                    libwebrtc C++ 정적 라이브러리(.a)를 Rust cdylib(.so) 안에 static link하여,
+                    단일 <code class="text-cyan-400 font-mono">liboxlens_jni.so</code> (20MB)를 Android에 배포하는 구조.
+                </p>
+            </div>
+        </section>
+
+        <!-- ============================================== -->
+        <!-- Section 2: 타임라인 -->
+        <!-- ============================================== -->
+        <section>
+            <h2 class="text-2xl font-bold font-mono mb-6">
+                <span class="text-gradient-cyan">02.</span> 타임라인
+            </h2>
+            <div class="relative pl-12 space-y-6">
+                <div class="timeline-line"></div>
+
+                <!-- Day 1 -->
+                <div class="phase-card bg-brand-surface rounded-xl border border-slate-700/50 p-5">
+                    <div class="flex items-center gap-3 mb-2">
+                        <div class="w-6 h-6 rounded-full bg-green-500/20 border-2 border-green-500 absolute -left-[0.35rem]"></div>
+                        <span class="text-xs font-mono text-slate-500">3/12</span>
+                        <span class="try-badge-ok text-xs px-2 py-0.5 rounded-full font-mono">성공</span>
+                    </div>
+                    <h3 class="font-bold text-white mb-1">JNI 스캐폴딩 + Kotlin 래퍼 설계</h3>
+                    <p class="text-sm text-slate-400">oxlens-jni crate, OxLensClient.kt, OxLensEventListener.kt 완성</p>
+                </div>
+
+                <!-- Day 2 -->
+                <div class="phase-card bg-brand-surface rounded-xl border border-slate-700/50 p-5">
+                    <div class="flex items-center gap-3 mb-2">
+                        <div class="w-6 h-6 rounded-full bg-green-500/20 border-2 border-green-500 absolute -left-[0.35rem]"></div>
+                        <span class="text-xs font-mono text-slate-500">3/14 오전</span>
+                        <span class="try-badge-ok text-xs px-2 py-0.5 rounded-full font-mono">성공</span>
+                    </div>
+                    <h3 class="font-bold text-white mb-1">Android 크로스 빌드 성공</h3>
+                    <p class="text-sm text-slate-400">OpenSSL→rustls 전환, webrtc-sys 0.2/0.3 충돌 해결, libunwind 우회, NDK sysroot 패치. <code class="text-cyan-400">liboxlens_jni.so</code> 20MB 생성.</p>
+                </div>
+
+                <!-- Day 3 - crash -->
+                <div class="phase-card bg-brand-surface rounded-xl border border-red-500/30 p-5">
+                    <div class="flex items-center gap-3 mb-2">
+                        <div class="w-6 h-6 rounded-full bg-red-500/20 border-2 border-red-500 absolute -left-[0.35rem]"></div>
+                        <span class="text-xs font-mono text-slate-500">3/14 오후</span>
+                        <span class="try-badge-fail text-xs px-2 py-0.5 rounded-full font-mono">SIGSEGV</span>
+                    </div>
+                    <h3 class="font-bold text-white mb-1">.so 로딩 즉시 크래시 — getauxval null deref</h3>
+                    <p class="text-sm text-slate-400 mb-3"><code class="text-red-400">signal 11 (SIGSEGV), fault addr 0x0</code> — System.loadLibrary() 호출 시 .so constructor 단계에서 터짐</p>
+                    <div class="code-block p-3 font-mono text-xs text-slate-400 overflow-x-auto">
+                        <div>#00 <span class="text-red-400">getauxval+28</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← compiler_builtins의 poisoned stub</div>
+                        <div>#01 __cxa_atexit+596 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← atomics 내부 함수</div>
+                        <div>#02 <span class="text-orange-400">_GLOBAL__sub_I_webrtc.cpp+80</span> ← libwebrtc C++ 글로벌 생성자</div>
+                        <div>#03 call_constructors &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← 링커가 .so 생성자 호출 중</div>
+                    </div>
+                </div>
+
+                <!-- Try A -->
+                <div class="phase-card bg-brand-surface rounded-xl border border-slate-700/50 p-5">
+                    <div class="flex items-center gap-3 mb-2">
+                        <div class="w-4 h-4 rounded-full bg-red-500/30 border border-red-500/50 absolute left-[0.15rem]"></div>
+                        <span class="text-xs font-mono text-slate-500">시도 A</span>
+                        <span class="try-badge-fail text-xs px-2 py-0.5 rounded-full font-mono">실패</span>
+                    </div>
+                    <h3 class="font-bold text-white mb-1"><code class="font-mono text-sm">-Ctarget-feature=-outline-atomics</code></h3>
+                    <p class="text-sm text-slate-400">pre-compiled std에 이미 getauxval 심볼이 포함되어 있어 cdylib에 그대로 끌려 들어옴. 우리 코드에만 적용되므로 무의미.</p>
+                </div>
+
+                <!-- Try B -->
+                <div class="phase-card bg-brand-surface rounded-xl border border-slate-700/50 p-5">
+                    <div class="flex items-center gap-3 mb-2">
+                        <div class="w-4 h-4 rounded-full bg-red-500/30 border border-red-500/50 absolute left-[0.15rem]"></div>
+                        <span class="text-xs font-mono text-slate-500">시도 B</span>
+                        <span class="try-badge-fail text-xs px-2 py-0.5 rounded-full font-mono">실패</span>
+                    </div>
+                    <h3 class="font-bold text-white mb-1"><code class="font-mono text-sm">__getauxval()</code> C 함수 직접 제공</h3>
+                    <p class="text-sm text-slate-400">compiler_builtins의 getauxval이 내부적으로 호출하는 weak extern <code class="text-cyan-400">__getauxval</code>을 C로 구현. 링커 심볼 resolve 순서 문제로 우리 함수가 무시됨.</p>
+                </div>
+
+                <!-- Try C -->
+                <div class="phase-card bg-brand-surface rounded-xl border border-slate-700/50 p-5">
+                    <div class="flex items-center gap-3 mb-2">
+                        <div class="w-4 h-4 rounded-full bg-yellow-500/30 border border-yellow-500/50 absolute left-[0.15rem]"></div>
+                        <span class="text-xs font-mono text-slate-500">시도 C</span>
+                        <span class="try-badge-pivot text-xs px-2 py-0.5 rounded-full font-mono">회피 가능</span>
+                    </div>
+                    <h3 class="font-bold text-white mb-1">Rust 1.88 다운그레이드</h3>
+                    <p class="text-sm text-slate-400">PR #144938이 stable에 들어온 건 1.93(2026-03). 1.92 이하에서는 Android outline-atomics 비활성. 문제 자체가 발생하지 않음. 그러나 근본 해결이 아닌 회피.</p>
+                </div>
+
+                <!-- Decision -->
+                <div class="phase-card bg-brand-surface rounded-xl border border-yellow-500/30 p-5">
+                    <div class="flex items-center gap-3 mb-2">
+                        <div class="w-6 h-6 rounded-full bg-yellow-500/20 border-2 border-yellow-500 absolute -left-[0.35rem]"></div>
+                        <span class="text-xs font-mono text-slate-500">3/14 결정</span>
+                        <span class="try-badge-pivot text-xs px-2 py-0.5 rounded-full font-mono">PIVOT</span>
+                    </div>
+                    <h3 class="font-bold text-white mb-1">Kotlin + libwebrtc Java API 전환</h3>
+                    <p class="text-sm text-slate-400">Rust FFI 경로 포기. libwebrtc AAR(BSD 3-Clause)의 <code class="text-cyan-400">org.webrtc.*</code> Java 바인딩을 Kotlin에서 직접 사용. 심볼 충돌 원천 차단.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================== -->
+        <!-- Section 3: 근본 원인 -->
+        <!-- ============================================== -->
+        <section>
+            <h2 class="text-2xl font-bold font-mono mb-6">
+                <span class="text-gradient-cyan">03.</span> 근본 원인 분석
+            </h2>
+            <div class="bg-brand-surface rounded-xl border border-slate-700/50 p-6 space-y-6">
+                <div>
+                    <h3 class="font-bold text-white mb-3">세 생태계의 교차점</h3>
+                    <p class="text-slate-300 word-keep-all leading-relaxed mb-4">
+                        Rust 컴파일러, Android NDK, libwebrtc — 각각은 잘 작동하지만, 셋이 만나는 지점에서 아무도 테스트하지 않은 경로가 생긴다.
+                    </p>
+                    <div class="grid md:grid-cols-3 gap-4">
+                        <div class="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+                            <div class="text-orange-400 font-mono font-bold text-sm mb-2">Rust 1.93</div>
+                            <p class="text-xs text-slate-400 word-keep-all">PR #144938으로 aarch64-linux-android에 outline-atomics 기본 활성화. compiler_builtins가 <code>getauxval</code> 심볼을 .so에 export.</p>
+                        </div>
+                        <div class="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+                            <div class="text-green-400 font-mono font-bold text-sm mb-2">Android Bionic</div>
+                            <p class="text-xs text-slate-400 word-keep-all">libc에 <code>getauxval</code>은 있지만, compiler_builtins가 참조하는 <code>__getauxval</code>(glibc ABI)은 없음. .so 내부 stub이 libc를 가림.</p>
+                        </div>
+                        <div class="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+                            <div class="text-blue-400 font-mono font-bold text-sm mb-2">libwebrtc</div>
+                            <p class="text-xs text-slate-400 word-keep-all">C++ 글로벌 생성자(<code>_GLOBAL__sub_I_webrtc.cpp</code>)가 .so 로딩 시 <code>getauxval</code>을 호출. broken stub으로 진입 → null deref.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <h3 class="font-bold text-white mb-3">왜 아무도 안 만났는가</h3>
+                    <ul class="space-y-2 text-sm text-slate-400">
+                        <li class="flex items-start gap-2">
+                            <span class="text-orange-400 mt-1">▸</span>
+                            <span class="word-keep-all">PR #144938은 2025-12 머지, Rust stable 1.93은 <strong class="text-white">2026-03 릴리스</strong> — 이번 달.</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-orange-400 mt-1">▸</span>
+                            <span class="word-keep-all">LiveKit Android SDK는 순수 Kotlin + Java 바인딩. <strong class="text-white">Rust cdylib를 Android에서 안 씀.</strong></span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-orange-400 mt-1">▸</span>
+                            <span class="word-keep-all">LiveKit의 Rust SDK는 데스크톱/서버 전용. Flutter FFI도 아직 1.93으로 빌드 안 함.</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <span class="text-orange-400 mt-1">▸</span>
+                            <span class="word-keep-all">즉, <strong class="text-white">Rust 1.93 + libwebrtc static link + Android cdylib</strong> 조합을 시도한 팀이 세상에 거의 없음.</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================== -->
+        <!-- Section 4: 왜 전환했는가 -->
+        <!-- ============================================== -->
+        <section>
+            <h2 class="text-2xl font-bold font-mono mb-6">
+                <span class="text-gradient-cyan">04.</span> 왜 전환했는가
+            </h2>
+            <div class="space-y-4">
+                <div class="bg-brand-surface rounded-xl border border-slate-700/50 p-6">
+                    <h3 class="font-bold text-white mb-4">Rust FFI 경로의 비용</h3>
+                    <div class="grid md:grid-cols-2 gap-4 text-sm">
+                        <div class="space-y-2 text-slate-400">
+                            <div class="flex justify-between"><span>빌드 시간</span><span class="text-red-400 font-mono">10~15분 (풀), 5분 (증분)</span></div>
+                            <div class="flex justify-between"><span>.so 크기</span><span class="text-red-400 font-mono">20MB</span></div>
+                            <div class="flex justify-between"><span>디버깅 난이도</span><span class="text-red-400 font-mono">tombstone + addr2line</span></div>
+                            <div class="flex justify-between"><span>크로스 바운더리</span><span class="text-red-400 font-mono">Rust ↔ C++ ↔ Android Linker</span></div>
+                        </div>
+                        <div class="space-y-2 text-slate-400">
+                            <div class="flex justify-between"><span>NDK 이슈</span><span class="text-red-400 font-mono">libunwind, libc++abi, sysroot</span></div>
+                            <div class="flex justify-between"><span>Rust 버전 제약</span><span class="text-red-400 font-mono">1.93 사용 불가</span></div>
+                            <div class="flex justify-between"><span>선례</span><span class="text-red-400 font-mono">없음</span></div>
+                            <div class="flex justify-between"><span>커뮤니티 지원</span><span class="text-red-400 font-mono">없음</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-brand-surface rounded-xl border border-slate-700/50 p-6">
+                    <h3 class="font-bold text-white mb-4">Kotlin + AAR 경로의 이점</h3>
+                    <div class="grid md:grid-cols-2 gap-4 text-sm">
+                        <div class="space-y-2 text-slate-400">
+                            <div class="flex justify-between"><span>빌드 시간</span><span class="text-green-400 font-mono">1~2분</span></div>
+                            <div class="flex justify-between"><span>AAR 크기</span><span class="text-green-400 font-mono">OS 관리</span></div>
+                            <div class="flex justify-between"><span>디버깅</span><span class="text-green-400 font-mono">Android Studio 네이티브</span></div>
+                            <div class="flex justify-between"><span>크로스 바운더리</span><span class="text-green-400 font-mono">Kotlin ↔ Java (동일 런타임)</span></div>
+                        </div>
+                        <div class="space-y-2 text-slate-400">
+                            <div class="flex justify-between"><span>심볼 충돌</span><span class="text-green-400 font-mono">원천 차단</span></div>
+                            <div class="flex justify-between"><span>선례</span><span class="text-green-400 font-mono">LiveKit, Onesignal 등 다수</span></div>
+                            <div class="flex justify-between"><span>라이선스</span><span class="text-green-400 font-mono">BSD 3-Clause (상용 자유)</span></div>
+                            <div class="flex justify-between"><span>하드웨어 코덱</span><span class="text-green-400 font-mono">자동 지원</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-brand-surface rounded-xl border border-slate-700/50 p-6">
+                    <h3 class="font-bold text-white mb-4">잃는 것 — 정말 잃는가?</h3>
+                    <div class="text-sm text-slate-400 space-y-2">
+                        <div class="flex items-start gap-2">
+                            <span class="text-yellow-400 mt-1">▸</span>
+                            <span class="word-keep-all"><strong class="text-white">멀티플랫폼 코어?</strong> — Android 우선. iOS는 Phase 3. 데스크톱은 Tauri WebView. 실제 필요 시점에 재검토.</span>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <span class="text-yellow-400 mt-1">▸</span>
+                            <span class="word-keep-all"><strong class="text-white">Rx/Tx Pipeline 설계?</strong> — 8개 항목 중 6개 그대로 적용. Tx FSM, 카메라 웜업은 Java API로 100% 가능. Rx offset은 서버에서 처리.</span>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <span class="text-yellow-400 mt-1">▸</span>
+                            <span class="word-keep-all"><strong class="text-white">배터리 전략?</strong> — 핵심은 FSM 설계 자체이지 언어 선택이 아님. Java API의 <code class="text-cyan-400">RtpSender.encoding.active</code>로 동일 구현.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================== -->
+        <!-- Section 5: 교훈 -->
+        <!-- ============================================== -->
+        <section>
+            <h2 class="text-2xl font-bold font-mono mb-6">
+                <span class="text-gradient-cyan">05.</span> 교훈
+            </h2>
+            <div class="space-y-4">
+                <div class="lesson-card bg-brand-surface rounded-r-xl p-5">
+                    <h3 class="font-bold text-white mb-2">① 선례를 먼저 찾아라</h3>
+                    <p class="text-sm text-slate-400 word-keep-all">
+                        크로스 바운더리 조합을 시도하기 전에 "이미 성공한 팀이 있는가"를 확인한다.
+                        없으면 "왜 안 했는가"를 파악한다.
+                        LiveKit이 Rust + Android cdylib를 안 쓰는 데는 이유가 있었다.
+                    </p>
+                </div>
+                <div class="lesson-card bg-brand-surface rounded-r-xl p-5">
+                    <h3 class="font-bold text-white mb-2">② 설계의 아름다움에 끌려 현실을 무시하지 마라</h3>
+                    <p class="text-sm text-slate-400 word-keep-all">
+                        "Rust 코어 하나로 전 플랫폼"은 아름다운 비전이지만,
+                        당장 필요한 건 Android에서 돌아가는 PTT SDK다.
+                        Show me the money.
+                    </p>
+                </div>
+                <div class="lesson-card bg-brand-surface rounded-r-xl p-5">
+                    <h3 class="font-bold text-white mb-2">③ 크로스 바운더리 비용은 기하급수적이다</h3>
+                    <p class="text-sm text-slate-400 word-keep-all">
+                        Rust 안에서, 또는 Kotlin 안에서는 각각 잘 돌아간다.
+                        경계를 넘는 순간(Rust → C++ FFI → Android Linker) 디버깅 비용이 폭발한다.
+                        경계를 줄이는 방향이 항상 옳다.
+                    </p>
+                </div>
+                <div class="lesson-card bg-brand-surface rounded-r-xl p-5">
+                    <h3 class="font-bold text-white mb-2">④ 삽질은 자산이다</h3>
+                    <p class="text-sm text-slate-400 word-keep-all">
+                        이 과정에서 확인한 것: libwebrtc AAR + Java API가 안전한 경로,
+                        Rx/Tx Pipeline 설계가 Kotlin에서도 유효, 배터리 전략은 언어 무관.
+                        "왜 안 되는지"를 정확히 이해하고 넘어간 건 향후 의사결정의 자산.
+                    </p>
+                </div>
+                <div class="lesson-card bg-brand-surface rounded-r-xl p-5">
+                    <h3 class="font-bold text-white mb-2">⑤ Rust 생태계의 한계를 인지하라</h3>
+                    <p class="text-sm text-slate-400 word-keep-all">
+                        서버(Rust + Tokio + Axum)와 웹(JS/Vue)은 성숙한 생태계에서 일했다.
+                        모바일 + Rust + C++ FFI는 생태계의 가장자리.
+                        문서도 없고 선례도 없고 커뮤니티 지원도 없다.
+                        언어의 강점과 생태계의 성숙도는 별개 문제다.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================== -->
+        <!-- Section 6: 앞으로 -->
+        <!-- ============================================== -->
+        <section>
+            <h2 class="text-2xl font-bold font-mono mb-6">
+                <span class="text-gradient-cyan">06.</span> 앞으로
+            </h2>
+            <div class="bg-brand-surface rounded-xl border border-slate-700/50 p-6">
+                <div class="grid md:grid-cols-2 gap-6">
+                    <div>
+                        <h3 class="font-bold text-green-400 mb-3">유지</h3>
+                        <ul class="space-y-1 text-sm text-slate-400">
+                            <li>▸ oxlens-sfu-server (Rust) — 변경 없음</li>
+                            <li>▸ oxlens-sfu-labs — E2E 테스트</li>
+                            <li>▸ oxlens-bench — 서버 부하 테스트</li>
+                            <li>▸ oxlens-home — 웹 클라이언트</li>
+                            <li>▸ Rx/Tx Pipeline 설계 — 그대로</li>
+                            <li>▸ 시그널링 프로토콜 — 그대로</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-orange-400 mb-3">전환</h3>
+                        <ul class="space-y-1 text-sm text-slate-400">
+                            <li>▸ Android SDK → Kotlin + org.webrtc.* Java API</li>
+                            <li>▸ SDP 빌더 → Kotlin 포팅 (JS/Rust 참조)</li>
+                            <li>▸ 시그널링 → OkHttp WebSocket</li>
+                            <li>▸ oxlens-jni, oxlens-webrtc, oxlens-webrtc-sys → 폐기</li>
+                            <li>▸ oxlens-core → 참조/bench용으로 보존</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================== -->
+        <!-- Section 7: References -->
+        <!-- ============================================== -->
+        <section>
+            <h2 class="text-2xl font-bold font-mono mb-6">
+                <span class="text-gradient-cyan">07.</span> 참고 자료
+            </h2>
+            <div class="bg-brand-surface rounded-xl border border-slate-700/50 p-6">
+                <ul class="space-y-2 text-sm text-slate-400">
+                    <li class="flex items-start gap-2">
+                        <span class="text-slate-600">▸</span>
+                        <span><a href="https://github.com/rust-lang/rust/pull/144938" class="text-cyan-400 hover:underline">rust-lang/rust#144938</a> — Enable outline-atomics by default on more AArch64 platforms (2025-12 merged)</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <span class="text-slate-600">▸</span>
+                        <span><a href="https://github.com/rust-lang/rust/issues/109064" class="text-cyan-400 hover:underline">rust-lang/rust#109064</a> — +outline-atomics violates "core shall not depend on libc"</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <span class="text-slate-600">▸</span>
+                        <span><a href="https://github.com/livekit/client-sdk-android" class="text-cyan-400 hover:underline">livekit/client-sdk-android</a> — LiveKit Android SDK (순수 Kotlin + Java API)</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <span class="text-slate-600">▸</span>
+                        <span><a href="https://webrtc.googlesource.com/src/+/refs/heads/main/LICENSE" class="text-cyan-400 hover:underline">libwebrtc LICENSE</a> — BSD 3-Clause (상용 사용 자유)</span>
+                    </li>
+                </ul>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-slate-800 mt-16">
+        <div class="max-w-5xl mx-auto px-6 py-8 flex justify-between items-center text-xs text-slate-600">
+            <span>author: kodeholic (powered by Claude)</span>
+            <span>0xLENS Post-Mortem Series — 2026-03-14</span>
+        </div>
+    </footer>
+
+</body>
+</html>

@@ -177,6 +177,16 @@ export class Signaling {
         this.sdk.emit("message", d);
         break;
 
+      case OP.VIDEO_SUSPENDED:
+        this.ack(op, pid);
+        this.sdk.emit("video:suspended", d);
+        break;
+
+      case OP.VIDEO_RESUMED:
+        this.ack(op, pid);
+        this.sdk.emit("video:resumed", d);
+        break;
+
       // --- Floor Control Events ---
       case OP.FLOOR_TAKEN:
         this.ack(op, pid);
@@ -232,6 +242,10 @@ export class Signaling {
 
       case OP.MUTE_UPDATE:
         console.log("[SIG] mute_update ack:", d);
+        break;
+
+      case OP.CAMERA_READY:
+        console.log("[SIG] camera_ready ack");
         break;
 
       case OP.MESSAGE:
