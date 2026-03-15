@@ -14,6 +14,8 @@ const $ = (id) => document.getElementById(id);
 // ============================================================
 let sdk = null;
 let isSpeakerOn  = true;
+let _pttSpeakerTimer = null;
+const PTT_SPEAKER_OFF_DELAY = 500;
 let isMicMuted   = false;
 let isConnected  = false;
 let isInRoom     = false;
@@ -587,6 +589,11 @@ function bindSdkEvents(s) {
       log("sys", "[PTT] 긴급발언 자동 해제 (floor 상태 변경)");
     }
 
+    // PTT 묵시적 스피커 제어
+    if (currentRoomMode === "ptt") {
+      applyPttSpeaker(state);
+    }
+
     updatePttView(state, speaker);
   });
 
@@ -701,12 +708,46 @@ $("conf-btn-mic").onclick = async () => {
 $("conf-btn-speaker").onclick = () => {
   if (isControlLocked) return;
   isSpeakerOn = !isSpeakerOn;
-  remoteAudio.muted = !isSpeakerOn;
-  // 개별 audio element도 반영
-  document.querySelectorAll('audio[data-uid]').forEach(el => { el.muted = !isSpeakerOn; });
+  if (currentRoomMode === "ptt") {
+    // PTT: 사용자 의도 기록 후 묵시적 룰 적용
+    applyPttSpeaker(sdk?.floorState || "idle");
+  } else {
+    // Conference: 직접 적용
+    _setAllAudioMuted(!isSpeakerOn);
+  }
   updateSpeakerIcon(isSpeakerOn);
   log("sys", `스피커 ${isSpeakerOn ? "ON" : "OFF"}`);
 };
+
+/** 모든 audio element 음소거 제어 */
+function _setAllAudioMuted(muted) {
+  remoteAudio.muted = muted;
+  document.querySelectorAll('audio[data-uid]').forEach(el => { el.muted = muted; });
+}
+
+/**
+ * PTT 묵시적 스피커 제어.
+ * LISTENING + 사용자 ON → 즉시 on
+ * IDLE/TALKING + 사용자 ON → 500ms 후 off (꼬리 보호)
+ * 사용자 OFF → 즉시 off
+ */
+function applyPttSpeaker(state) {
+  clearTimeout(_pttSpeakerTimer);
+  _pttSpeakerTimer = null;
+
+  const shouldPlay = isSpeakerOn && state === "listening";
+
+  if (shouldPlay) {
+    _setAllAudioMuted(false);
+  } else if (!isSpeakerOn) {
+    _setAllAudioMuted(true);
+  } else {
+    _pttSpeakerTimer = setTimeout(() => {
+      _setAllAudioMuted(true);
+      log("sys", `[PTT:SPEAKER] delayed off (${PTT_SPEAKER_OFF_DELAY}ms)`);
+    }, PTT_SPEAKER_OFF_DELAY);
+  }
+}
 
 // 비디오 뮤트 (soft → 5초 후 hard escalation)
 $("conf-btn-video").onclick = async () => {
