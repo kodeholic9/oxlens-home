@@ -3,6 +3,7 @@
 <!--
   @author: kodeholic (powered by Claude)
   @description: 0xLENS Rx/Tx Pipeline Design — Client-Server Hybrid Media Architecture
+  @updated: 2026-03-15 — PTT Audio Delay Resolution 실측 데이터 반영, Rx Pipeline 스토리텔링 현행화
 -->
 <head>
     <meta charset="UTF-8">
@@ -48,6 +49,18 @@
         .bar-enter { width: 0 !important; }
         .status-proven { background: rgba(34,197,94,0.15); border-color: rgba(34,197,94,0.3); color: #4ade80; }
         .status-conditional { background: rgba(251,191,36,0.15); border-color: rgba(251,191,36,0.3); color: #fbbf24; }
+        .status-measured { background: rgba(0,240,255,0.15); border-color: rgba(0,240,255,0.3); color: #00F0FF; }
+        .status-rejected { background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.3); color: #f87171; }
+        /* timeline */
+        .timeline-line { position: absolute; left: 23px; top: 0; bottom: 0; width: 2px; }
+        .timeline-dot { width: 12px; height: 12px; border-radius: 50%; position: absolute; left: 18px; top: 6px; z-index: 1; }
+        .attempt-card { max-height: 0; overflow: hidden; transition: max-height 0.5s ease; }
+        .attempt-item.open .attempt-card { max-height: 1200px; }
+        .attempt-item.open .attempt-chevron { transform: rotate(180deg); }
+        .attempt-chevron { transition: transform 0.25s ease; }
+        /* comparison chart bars */
+        .cbar { transition: width 1.4s cubic-bezier(0.22, 1, 0.36, 1); }
+        .cbar-enter { width: 0 !important; }
     </style>
 </head>
 <body class="bg-grid min-h-screen flex flex-col font-sans antialiased">
@@ -76,106 +89,317 @@
         <section class="max-w-5xl mx-auto px-4 sm:px-6 pt-12 sm:pt-20 pb-12">
             <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs font-mono text-brand-cyan mb-6">
                 <span class="w-2 h-2 rounded-full bg-brand-cyan animate-pulse"></span>
-                Architecture Design Document · Client-Server Hybrid
+                Architecture Design Document · Client-Server Hybrid · v2.0 — 실측 검증 완료
             </div>
             <h1 class="text-3xl sm:text-5xl font-extrabold text-white leading-tight mb-4 tracking-tight">
-                Target: Audio <span class="text-gradient">0ms</span>,<br>
+                jbDelay <span class="text-gradient">97ms</span>,<br>
                 Battery Waste <span class="text-gradient-green">Zero</span>.
             </h1>
             <p class="text-gray-400 text-base sm:text-lg leading-relaxed max-w-2xl word-keep-all">
                 모바일 PTT 환경에서 즉시 발화, 최소 배터리 소모, 카메라 콜드 스타트 극복을
-                동시에 목표로 하는 클라이언트-서버 하이브리드 미디어 파이프라인 설계.
-                아래 수치는 아키텍처 설계 목표이며, 실측 검증은 구현 완료 후 수행 예정입니다.
+                동시에 달성한 클라이언트-서버 하이브리드 미디어 파이프라인.
+                아래 수치는 <span class="text-white font-semibold">실측 데이터</span> 기반입니다.
             </p>
         </section>
 
-        <!-- 설계 목표 3-Grid -->
+        <!-- 실측 결과 3-Grid -->
         <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div class="bg-brand-surface border border-brand-rust/30 rounded-xl p-5 sm:p-6 text-center">
-                    <div class="text-3xl sm:text-4xl font-mono font-extrabold text-brand-rust">~0<span class="text-lg">ms</span></div>
-                    <div class="text-xs sm:text-sm text-gray-400 mt-1">First Audio Latency</div>
-                    <div class="text-[10px] text-gray-500 mt-2 word-keep-all">설계 목표 — 실측 예정</div>
+                    <div class="text-3xl sm:text-4xl font-mono font-extrabold text-brand-rust">97<span class="text-lg">ms</span></div>
+                    <div class="text-xs sm:text-sm text-gray-400 mt-1">jbDelay 최대값 (실측)</div>
+                    <div class="text-[10px] text-gray-500 mt-2 word-keep-all">ITU-T G.114 정상 범위 · 누적 없음</div>
                 </div>
                 <div class="bg-brand-surface border border-green-500/30 rounded-xl p-5 sm:p-6 text-center">
                     <div class="text-3xl sm:text-4xl font-mono font-extrabold text-green-400">3<span class="text-lg">-Stage</span></div>
                     <div class="text-xs sm:text-sm text-gray-400 mt-1">Adaptive Power Profile</div>
-                    <div class="text-[10px] text-gray-500 mt-2 word-keep-all">설계 목표 — 미사용 시간에 비례한 자원 회수</div>
+                    <div class="text-[10px] text-gray-500 mt-2 word-keep-all">Stage 1~2 구현 완료 · Stage 3 조건부</div>
                 </div>
                 <div class="bg-brand-surface border border-brand-cyan/30 rounded-xl p-5 sm:p-6 text-center">
                     <div class="text-3xl sm:text-4xl font-mono font-extrabold text-brand-cyan">Client<span class="text-lg">-driven</span></div>
                     <div class="text-xs sm:text-sm text-gray-400 mt-1">Readiness Protocol</div>
-                    <div class="text-[10px] text-gray-500 mt-2 word-keep-all">서버 추측 없는 미디어 시작</div>
+                    <div class="text-[10px] text-gray-500 mt-2 word-keep-all">CAMERA_READY + PLI 2발 · 구현 완료</div>
                 </div>
             </div>
         </section>
 
-        <!-- SECTION: Rx Pipeline -->
+        <!-- ================================================================ -->
+        <!-- SECTION: Rx Pipeline — 스토리텔링 -->
+        <!-- ================================================================ -->
         <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16 border-t border-white/10 pt-12">
             <h2 class="text-xl sm:text-2xl font-bold mb-2 font-mono text-white">Rx Pipeline — 수신 경로</h2>
-            <p class="text-gray-400 text-sm mb-8 word-keep-all">
-                대기 상태에서도 오디오 디코더를 즉시 재생 가능한 상태로 유지하여,
-                발화자 전환 시 끊김 없는 오디오 연속성을 보장합니다.
+            <p class="text-gray-400 text-sm mb-4 word-keep-all">
+                PTT 화자 전환 시 수신 오디오가 단조 증가하며 지연되는 문제를 해결한 과정.
+                18시간 디버깅 세션에서 3가지 접근법을 시도하여 최종 해결에 도달했습니다.
             </p>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div class="bg-brand-surface border border-brand-rust/20 rounded-xl p-6">
-                    <div class="flex items-center gap-2 mb-3">
-                        <span class="w-2 h-2 rounded-full bg-brand-rust"></span>
-                        <h3 class="font-mono text-brand-rust font-bold text-sm">Audio Decoder Warm-keeping</h3>
+
+            <!-- 증상 -->
+            <div class="bg-red-500/5 border border-red-500/20 rounded-xl p-5 mb-8">
+                <div class="flex items-start gap-3">
+                    <div class="w-10 h-10 rounded-full bg-red-500/15 flex items-center justify-center shrink-0 mt-0.5">
+                        <svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/></svg>
                     </div>
-                    <p class="text-gray-400 text-sm leading-relaxed word-keep-all mb-4">
-                        미디어 엔진의 오디오 디코더는 입력이 없으면 절전 모드로 전환됩니다.
-                        이 상태에서 실제 음성이 도착하면 디코더 웜업에 수십 ms가 소요되어
-                        첫 음절이 잘리는 현상이 발생합니다.
-                    </p>
-                    <div class="bg-white/[0.03] rounded-lg p-3 text-xs font-mono text-gray-300 space-y-2">
-                        <div class="flex items-start gap-2">
-                            <span class="text-brand-rust font-bold shrink-0">문제</span>
-                            <span class="word-keep-all">디코더 절전 → 복귀 지연 (모드 전환 비용)</span>
-                        </div>
-                        <div class="flex items-start gap-2">
-                            <span class="text-green-400 font-bold shrink-0">해결</span>
-                            <span class="word-keep-all">대기 중 최소 비용의 무음 프레임을 로컬 주입하여 디코더를 "깨어있는" 상태로 유지</span>
-                        </div>
-                        <div class="flex items-start gap-2">
-                            <span class="text-brand-cyan font-bold shrink-0">기대</span>
-                            <span class="word-keep-all">첫 음성 지연 최소화 (목표 ~0ms), 배터리 영향 무시 가능</span>
-                        </div>
-                    </div>
-                </div>
-                <div class="bg-brand-surface border border-brand-cyan/20 rounded-xl p-6">
-                    <div class="flex items-center gap-2 mb-3">
-                        <span class="w-2 h-2 rounded-full bg-brand-cyan"></span>
-                        <h3 class="font-mono text-brand-cyan font-bold text-sm">Seamless Stream Continuity</h3>
-                    </div>
-                    <p class="text-gray-400 text-sm leading-relaxed word-keep-all mb-4">
-                        발화자가 전환되면 새로운 미디어 스트림이 시작됩니다.
-                        이때 디코더가 유지하던 시퀀스와 새 스트림의 시퀀스 사이에 불연속이 발생하면
-                        디코더가 이를 대규모 패킷 손실로 오인합니다.
-                    </p>
-                    <div class="bg-white/[0.03] rounded-lg p-3 text-xs font-mono text-gray-300 space-y-2">
-                        <div class="flex items-start gap-2">
-                            <span class="text-brand-rust font-bold shrink-0">문제</span>
-                            <span class="word-keep-all">스트림 전환 시 시퀀스 불연속 → 디코더 오동작</span>
-                        </div>
-                        <div class="flex items-start gap-2">
-                            <span class="text-green-400 font-bold shrink-0">해결</span>
-                            <span class="word-keep-all">미디어 엔진의 공식 확장 인터페이스를 활용한 무손실 패킷 보정 레이어 — SFU 서버의 검증된 로직을 클라이언트로 이식</span>
-                        </div>
-                        <div class="flex items-start gap-2">
-                            <span class="text-brand-cyan font-bold shrink-0">결과</span>
-                            <span class="word-keep-all">발화자 전환 시 끊김 없는 연속 재생</span>
-                        </div>
+                    <div>
+                        <h3 class="text-red-400 font-mono font-bold text-sm mb-2">증상 — NetEQ Jitter Buffer 폭주</h3>
+                        <p class="text-sm text-gray-300 word-keep-all">
+                            PTT 모드에서 화자 전환을 반복하면 <b class="text-white">수신 오디오 지연이 단조 증가</b>.
+                            30초 만에 1초 이상 누적되어 체감상 "말한 뒤 한참 뒤에 들림".
+                            한 번 누적된 지연은 <b class="text-red-400">절대 줄어들지 않음</b> (shrink=0).
+                        </p>
                     </div>
                 </div>
             </div>
+
+            <!-- 3-Attempt Timeline -->
+            <div class="relative pl-10 space-y-6 mb-10" id="attemptTimeline">
+                <div class="timeline-line bg-gradient-to-b from-red-500/40 via-yellow-500/40 to-green-500/40"></div>
+
+                <!-- Attempt 1: Interceptor (실패) -->
+                <div class="attempt-item relative" data-attempt="1">
+                    <div class="timeline-dot bg-red-500/80 border-2 border-brand-dark"></div>
+                    <div class="bg-brand-surface border border-red-500/20 rounded-xl overflow-hidden hover:border-red-500/30 transition-all cursor-pointer">
+                        <div class="attempt-header px-5 py-4 flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-mono font-bold status-rejected border">REJECTED</span>
+                                <div>
+                                    <div class="text-white font-medium text-sm">시도 1 — C++ AudioInterceptor (클라이언트 silence injection)</div>
+                                    <div class="text-gray-500 text-xs mt-0.5">jbDelay 1055ms · 구조적 실패</div>
+                                </div>
+                            </div>
+                            <svg class="attempt-chevron w-5 h-5 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                        </div>
+                        <div class="attempt-card">
+                            <div class="px-5 pb-5 border-t border-white/5 pt-4 space-y-4">
+                                <div class="bg-white/[0.03] rounded-lg p-4 space-y-3">
+                                    <div class="flex items-start gap-2 text-xs font-mono text-gray-300">
+                                        <span class="text-brand-cyan font-bold shrink-0">가설</span>
+                                        <span class="word-keep-all">idle 구간에 클라이언트에서 Opus DTX silence를 주입하면 NetEQ가 연속 스트림으로 인식하여 cold start 지연이 없을 것</span>
+                                    </div>
+                                    <div class="flex items-start gap-2 text-xs font-mono text-gray-300">
+                                        <span class="text-green-400 font-bold shrink-0">구현</span>
+                                        <span class="word-keep-all">libwebrtc C++에 AudioInterceptorImpl 추가. Call::DeliverRtpPacket() 인터셉트. 로컬 20ms 타이머로 silence 프레임 주입 + seq/ts offset 보정</span>
+                                    </div>
+                                </div>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-xs font-mono border-collapse">
+                                        <thead><tr class="border-b border-white/10 text-gray-500"><th class="py-2 text-left">시각</th><th class="py-2 text-right">jbDelay</th><th class="py-2 text-right">shrink</th><th class="py-2 text-right">lost</th><th class="py-2 text-left pl-3">비고</th></tr></thead>
+                                        <tbody class="text-gray-400">
+                                            <tr class="border-b border-white/5"><td class="py-1.5">00:50</td><td class="text-right">null</td><td class="text-right">0</td><td class="text-right">0</td><td class="pl-3">시작</td></tr>
+                                            <tr class="border-b border-white/5"><td class="py-1.5">00:51</td><td class="text-right">26ms</td><td class="text-right">0</td><td class="text-right">0</td><td class="pl-3"></td></tr>
+                                            <tr class="border-b border-white/5"><td class="py-1.5">00:52</td><td class="text-right">225ms</td><td class="text-right">0</td><td class="text-right">55</td><td class="pl-3">silence cycle 51회</td></tr>
+                                            <tr class="border-b border-white/5"><td class="py-1.5">00:54</td><td class="text-right">638ms</td><td class="text-right">0</td><td class="text-right">87</td><td class="pl-3"></td></tr>
+                                            <tr class="border-b border-white/5 text-red-400"><td class="py-1.5">00:55</td><td class="text-right font-bold">1055ms</td><td class="text-right">0</td><td class="text-right">0</td><td class="pl-3 font-bold">5분 만에 1초 돌파</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+                                    <h4 class="text-xs font-mono text-red-400 font-bold mb-1.5">실패 원인 — 이중 clock 보정 (구조적)</h4>
+                                    <div class="text-xs text-gray-400 word-keep-all space-y-1.5">
+                                        <p>서버 ptt_rewriter가 이미 encoder clock 기반 연속 ts 출력을 수행 (완성품).</p>
+                                        <p>interceptor가 로컬 타이머(벽시계) 기반으로 별도 ts를 주입 → <b class="text-red-300">두 독립 clock의 offset이 매 화자 전환마다 달라지며, 이 차이가 NetEQ에 "jitter"로 해석됨</b>.</p>
+                                        <p class="text-red-400 font-bold">결론: 서버 clock과 클라이언트 벽시계는 독립이므로, 클라이언트 측 silence injection은 구조적으로 해결 불가.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Attempt 2: Silence Flush (부분 해결) -->
+                <div class="attempt-item relative" data-attempt="2">
+                    <div class="timeline-dot bg-yellow-500/80 border-2 border-brand-dark"></div>
+                    <div class="bg-brand-surface border border-yellow-500/20 rounded-xl overflow-hidden hover:border-yellow-500/30 transition-all cursor-pointer">
+                        <div class="attempt-header px-5 py-4 flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-mono font-bold status-conditional border">PARTIAL</span>
+                                <div>
+                                    <div class="text-white font-medium text-sm">시도 2 — 서버 Silence Flush 3발</div>
+                                    <div class="text-gray-500 text-xs mt-0.5">jbDelay 1180ms · NACK list full 해소, 지연 누적 여전</div>
+                                </div>
+                            </div>
+                            <svg class="attempt-chevron w-5 h-5 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                        </div>
+                        <div class="attempt-card">
+                            <div class="px-5 pb-5 border-t border-white/5 pt-4 space-y-4">
+                                <div class="bg-white/[0.03] rounded-lg p-4 space-y-3">
+                                    <div class="flex items-start gap-2 text-xs font-mono text-gray-300">
+                                        <span class="text-brand-cyan font-bold shrink-0">가설</span>
+                                        <span class="word-keep-all">화자 끝날 때 서버에서 Opus DTX silence 3발(60ms)을 flush하면 NetEQ에게 "스트림 끝"을 알려 cold 전환 유도</span>
+                                    </div>
+                                    <div class="flex items-start gap-2 text-xs font-mono text-gray-300">
+                                        <span class="text-green-400 font-bold shrink-0">구현</span>
+                                        <span class="word-keep-all">서버 ptt_rewriter.rs clear_speaker() → Opus DTX silence 3프레임 생성. handler.rs ROOM_LEAVE / FLOOR_RELEASE / disconnect 3곳에서 fan-out</span>
+                                    </div>
+                                </div>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-xs font-mono border-collapse">
+                                        <thead><tr class="border-b border-white/10 text-gray-500"><th class="py-2 text-left">시각</th><th class="py-2 text-right">jbDelay</th><th class="py-2 text-right">shrink</th><th class="py-2 text-right">lost</th><th class="py-2 text-left pl-3">비고</th></tr></thead>
+                                        <tbody class="text-gray-400">
+                                            <tr class="border-b border-white/5"><td class="py-1.5">09:30</td><td class="text-right">null</td><td class="text-right">0</td><td class="text-right">0</td><td class="pl-3">시작</td></tr>
+                                            <tr class="border-b border-white/5"><td class="py-1.5">09:31</td><td class="text-right">357ms</td><td class="text-right">0</td><td class="text-right">94</td><td class="pl-3">화자 전환</td></tr>
+                                            <tr class="border-b border-white/5"><td class="py-1.5">09:32</td><td class="text-right">506ms</td><td class="text-right">0</td><td class="text-right">0</td><td class="pl-3"></td></tr>
+                                            <tr class="border-b border-white/5 text-yellow-400"><td class="py-1.5">09:33</td><td class="text-right font-bold">1180ms</td><td class="text-right">0</td><td class="text-right">152</td><td class="pl-3 font-bold">최대값</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3">
+                                    <h4 class="text-xs font-mono text-yellow-400 font-bold mb-1.5">부분 해결 — 기여와 한계</h4>
+                                    <div class="text-xs text-gray-400 word-keep-all space-y-1">
+                                        <p><b class="text-green-400">기여:</b> NACK list full 0회 달성. silence flush가 last_virtual_ts를 올려놓아 후속 dynamic ts_gap 계산의 기준점 역할.</p>
+                                        <p><b class="text-yellow-300">한계:</b> silence 3발(60ms)로는 idle 2~5초 구간의 ts gap을 커버 못 함. jbDelay 단조 증가 여전.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Attempt 3: Dynamic ts_gap (최종 해결) -->
+                <div class="attempt-item relative open" data-attempt="3">
+                    <div class="timeline-dot bg-green-500 border-2 border-brand-dark shadow-[0_0_10px_rgba(34,197,94,0.5)]"></div>
+                    <div class="bg-brand-surface border border-green-500/30 rounded-xl overflow-hidden">
+                        <div class="attempt-header px-5 py-4 flex items-center justify-between cursor-pointer">
+                            <div class="flex items-center gap-3">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-mono font-bold status-measured border">✅ RESOLVED</span>
+                                <div>
+                                    <div class="text-white font-medium text-sm">최종 해결 — 서버 Dynamic ts_guard_gap</div>
+                                    <div class="text-green-400 text-xs mt-0.5 font-bold">jbDelay 최대 97ms · 누적 없음 · 즉시 회복</div>
+                                </div>
+                            </div>
+                            <svg class="attempt-chevron w-5 h-5 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                        </div>
+                        <div class="attempt-card" style="max-height: 2000px;">
+                            <div class="px-5 pb-5 border-t border-white/5 pt-4 space-y-4">
+                                <!-- 핵심 아이디어 -->
+                                <div class="bg-green-500/5 border border-green-500/20 rounded-lg p-4">
+                                    <h4 class="text-xs font-mono text-green-400 font-bold mb-2">핵심 아이디어 — "ts를 확 늘리면 안되?"</h4>
+                                    <div class="text-xs text-gray-300 word-keep-all space-y-2">
+                                        <p>NetEQ는 <code class="bg-white/10 px-1 rounded text-brand-cyan">arrival_time gap</code>과 <code class="bg-white/10 px-1 rounded text-brand-cyan">ts gap</code>의 불일치를 jitter로 해석합니다.</p>
+                                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                                            <div class="bg-red-500/10 border border-red-500/15 rounded-lg p-3">
+                                                <div class="text-red-400 font-mono font-bold text-[10px] mb-1.5">고정 ts_gap=960 (20ms)</div>
+                                                <div class="font-mono text-[11px] text-gray-400 space-y-0.5">
+                                                    <div>expected = 960/48000 = <span class="text-white">20ms</span></div>
+                                                    <div>actual (idle 3초) = <span class="text-white">3000ms</span></div>
+                                                    <div>jitter = 3000 - 20 = <span class="text-red-400 font-bold">2980ms</span></div>
+                                                    <div class="text-red-400">→ buffer를 3초로 확장!</div>
+                                                </div>
+                                            </div>
+                                            <div class="bg-green-500/10 border border-green-500/15 rounded-lg p-3">
+                                                <div class="text-green-400 font-mono font-bold text-[10px] mb-1.5">dynamic ts_gap (경과시간 × 48kHz)</div>
+                                                <div class="font-mono text-[11px] text-gray-400 space-y-0.5">
+                                                    <div>ts_gap = 3000 × 48 = 144000</div>
+                                                    <div>expected = 144000/48000 = <span class="text-white">3000ms</span></div>
+                                                    <div>actual = <span class="text-white">3000ms</span></div>
+                                                    <div>jitter = 3000 - 3000 = <span class="text-green-400 font-bold">0ms</span></div>
+                                                    <div class="text-green-400">→ buffer 안 키움!</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 구현 -->
+                                <div class="bg-white/[0.03] rounded-lg p-4">
+                                    <div class="flex items-start gap-2 text-xs font-mono text-gray-300">
+                                        <span class="text-green-400 font-bold shrink-0">구현</span>
+                                        <span class="word-keep-all">서버 ptt_rewriter.rs — clear_speaker()에서 cleared_at 기록, switch_speaker()에서 경과 시간 × 48kHz로 dynamic gap 계산. silence flush의 last_virtual_ts를 기준으로 추가 gap 적용. Audio만 (Video는 키프레임 게이팅이 처리).</span>
+                                    </div>
+                                </div>
+
+                                <!-- 서버 로그 -->
+                                <div class="bg-white/[0.02] rounded-lg p-3 font-mono text-[11px] text-gray-500 overflow-x-auto">
+                                    <div class="text-gray-400 font-bold mb-1.5">서버 로그 (실측)</div>
+                                    <div class="space-y-0.5 min-w-[400px]">
+                                        <div>[PTT:REWRITE] dynamic ts_gap: idle=<span class="text-brand-cyan">9147ms</span>  → ts_gap=<span class="text-white">439056</span>  (vs fixed=960)</div>
+                                        <div>[PTT:REWRITE] dynamic ts_gap: idle=<span class="text-brand-cyan">2575ms</span>  → ts_gap=<span class="text-white">123600</span>  (vs fixed=960)</div>
+                                        <div>[PTT:REWRITE] dynamic ts_gap: idle=<span class="text-brand-cyan">31881ms</span> → ts_gap=<span class="text-white">1530288</span> (vs fixed=960)</div>
+                                        <div>[PTT:REWRITE] dynamic ts_gap: idle=<span class="text-brand-cyan">753ms</span>   → ts_gap=<span class="text-white">36144</span>   (vs fixed=960)</div>
+                                    </div>
+                                </div>
+
+                                <!-- 실측 테이블 -->
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-xs font-mono border-collapse">
+                                        <thead><tr class="border-b border-white/10 text-gray-500"><th class="py-2 text-left">시각</th><th class="py-2 text-right">jbDelay</th><th class="py-2 text-right">shrink</th><th class="py-2 text-right">lost</th><th class="py-2 text-left pl-3">비고</th></tr></thead>
+                                        <tbody class="text-gray-400">
+                                            <tr class="border-b border-white/5"><td class="py-1.5">11:16:01</td><td class="text-right">null</td><td class="text-right">0</td><td class="text-right">0</td><td class="pl-3">새 세션</td></tr>
+                                            <tr class="border-b border-white/5"><td class="py-1.5">11:16:04</td><td class="text-right">53ms</td><td class="text-right">0</td><td class="text-right">0</td><td class="pl-3"></td></tr>
+                                            <tr class="border-b border-white/5"><td class="py-1.5">11:16:13</td><td class="text-right">80ms</td><td class="text-right">0</td><td class="text-right">76</td><td class="pl-3">화자 전환</td></tr>
+                                            <tr class="border-b border-white/5 text-green-400"><td class="py-1.5">11:16:22</td><td class="text-right font-bold">27ms</td><td class="text-right">0</td><td class="text-right">121</td><td class="pl-3 font-bold">lost 후 즉시 회복!</td></tr>
+                                            <tr class="border-b border-white/5"><td class="py-1.5">11:17:11</td><td class="text-right">53ms</td><td class="text-right">0</td><td class="text-right">75</td><td class="pl-3">화자 전환</td></tr>
+                                            <tr class="border-b border-white/5"><td class="py-1.5">11:17:14</td><td class="text-right">93ms</td><td class="text-right">0</td><td class="text-right">59</td><td class="pl-3"></td></tr>
+                                            <tr class="border-b border-white/5 text-brand-cyan"><td class="py-1.5">11:17:26</td><td class="text-right font-bold">97ms</td><td class="text-right">0</td><td class="text-right">0</td><td class="pl-3 font-bold">최대값 = 97ms</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div><!-- /timeline -->
+
+            <!-- 비교 요약 차트 -->
+            <h3 class="text-lg font-bold font-mono text-white mb-4">비교 요약 — jbDelay 최대값</h3>
+            <div class="space-y-3 mb-6" id="comparisonBars"></div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs font-mono border-collapse">
+                        <thead><tr class="border-b border-white/10 text-gray-500"><th class="py-2 text-left">지표</th><th class="py-2 text-center">Interceptor</th><th class="py-2 text-center">Silence Flush</th><th class="py-2 text-center text-green-400">Dynamic ts_gap</th></tr></thead>
+                        <tbody class="text-gray-400 text-center">
+                            <tr class="border-b border-white/5"><td class="py-1.5 text-left text-gray-500">jbDelay 최대</td><td class="text-red-400">1055ms</td><td class="text-yellow-400">1180ms</td><td class="text-green-400 font-bold">97ms</td></tr>
+                            <tr class="border-b border-white/5"><td class="py-1.5 text-left text-gray-500">지연 추이</td><td class="text-red-400">단조 증가</td><td class="text-yellow-400">단조 증가</td><td class="text-green-400 font-bold">안정 (누적 없음)</td></tr>
+                            <tr class="border-b border-white/5"><td class="py-1.5 text-left text-gray-500">lost 후 회복</td><td class="text-red-400">안 됨</td><td class="text-yellow-400">안 됨</td><td class="text-green-400 font-bold">즉시 (27ms)</td></tr>
+                            <tr class="border-b border-white/5"><td class="py-1.5 text-left text-gray-500">NACK list full</td><td class="text-red-400">2회</td><td class="text-green-400">0회</td><td class="text-green-400">0회</td></tr>
+                            <tr class="border-b border-white/5"><td class="py-1.5 text-left text-gray-500">체감 지연</td><td class="text-red-400">1초+</td><td class="text-red-400">1초+</td><td class="text-green-400 font-bold">없음</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="bg-white/[0.03] border border-white/5 rounded-xl p-4">
+                    <h4 class="text-xs font-mono text-brand-cyan font-bold mb-3">ITU-T G.114 기준</h4>
+                    <div class="space-y-2 text-xs text-gray-400 word-keep-all">
+                        <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-sm bg-green-500/50 shrink-0"></span> 150ms 이하 — 사용자 인지 불가</div>
+                        <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-sm bg-yellow-500/50 shrink-0"></span> 150~400ms — 인지 가능, 허용</div>
+                        <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-sm bg-red-500/50 shrink-0"></span> 400ms 이상 — 대화 지장</div>
+                        <div class="mt-3 text-white font-mono font-bold text-sm">jbDelay 97ms + 네트워크 ≈ 135~175ms</div>
+                        <div class="text-green-400">→ G.114 정상 범위. 체감: "지연 없음".</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 교훈 -->
+            <div class="bg-brand-surface border border-brand-cyan/20 rounded-xl p-5">
+                <h4 class="text-sm font-mono text-brand-cyan font-bold mb-3">교훈</h4>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs text-gray-400 word-keep-all">
+                    <div class="space-y-1">
+                        <div class="text-white font-bold">수신자(NetEQ) 관점에서 역으로 사고하라</div>
+                        <p>"패킷으로 빈 구간을 채워야 한다"는 프레임에 갇히지 말 것. NetEQ가 보는 것은 arrival_time과 ts gap의 일치 여부.</p>
+                    </div>
+                    <div class="space-y-1">
+                        <div class="text-white font-bold">ts gap ≠ RFC 위반</div>
+                        <p>ts gap이 큰 것은 "오래 침묵했다"를 의미하는 완전히 합법적인 RTP. RFC 3550에서 ts는 샘플 카운터이지 벽시계가 아니다.</p>
+                    </div>
+                    <div class="space-y-1">
+                        <div class="text-white font-bold">shrink=0이 핵심 단서</div>
+                        <p>"buffer를 줄일 이유가 없다"가 아니라 "줄일 수 없다" — arrival_time과 ts가 불일치하면 항상 "jitter가 크다"고 판단.</p>
+                    </div>
+                    <div class="space-y-1">
+                        <div class="text-white font-bold">이중 clock 보정은 구조적 실패</div>
+                        <p>서버 encoder clock과 클라이언트 벽시계는 독립. 매 전환마다 offset이 달라져 drift가 누적.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Video Rx 참고 -->
             <div class="mt-6 bg-white/[0.02] border border-white/5 rounded-xl p-4 text-xs text-gray-500 font-mono word-keep-all">
                 <span class="text-gray-400 font-bold">Video Rx</span> — 비디오는 패킷 레벨 조작을 배제합니다.
                 키프레임 확보는 아래 Client-driven Readiness 프로토콜에서 처리합니다.
             </div>
         </section>
 
-        <!-- SECTION: Tx FSM -->
+        <!-- ================================================================ -->
+        <!-- SECTION: Tx FSM (기존 유지) -->
+        <!-- ================================================================ -->
         <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16 border-t border-white/10 pt-12">
             <h2 class="text-xl sm:text-2xl font-bold mb-2 font-mono text-white">Tx Pipeline — Adaptive Power Management</h2>
             <p class="text-gray-400 text-sm mb-8 word-keep-all">
@@ -392,29 +616,32 @@
             </div>
         </section>
 
-        <!-- SECTION: Feasibility Matrix -->
+        <!-- SECTION: Feasibility Matrix (현행화) -->
         <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-20 border-t border-white/10 pt-12">
             <h2 class="text-xl sm:text-2xl font-bold mb-6 font-mono text-white">Feasibility Matrix</h2>
             <div class="space-y-3" id="feasibilityList"></div>
-            <div class="mt-6 flex items-center gap-6 text-xs font-mono text-gray-500">
-                <span class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-sm bg-green-500/30 border border-green-500/40"></span> Proven — 표준 API 또는 검증된 패턴</span>
-                <span class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-sm bg-yellow-500/30 border border-yellow-500/40"></span> Field-test Required — 네트워크 환경 실측 필요</span>
+            <div class="mt-6 flex flex-wrap items-center gap-4 sm:gap-6 text-xs font-mono text-gray-500">
+                <span class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-sm bg-cyan-500/30 border border-cyan-500/40"></span> Measured — 실측 검증 완료</span>
+                <span class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-sm bg-green-500/30 border border-green-500/40"></span> Proven — 구현 완료</span>
+                <span class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-sm bg-yellow-500/30 border border-yellow-500/40"></span> Field-test — 실측 필요</span>
+                <span class="flex items-center gap-2"><span class="inline-block w-3 h-3 rounded-sm bg-red-500/30 border border-red-500/40"></span> Rejected — 폐기</span>
             </div>
         </section>
 
-        <!-- SECTION: Technology Foundation -->
+        <!-- SECTION: Technology Foundation (현행화) -->
         <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-20">
             <div class="bg-brand-surface border border-white/5 rounded-xl p-6">
                 <h3 class="font-mono text-white font-bold text-sm mb-4">Technology Foundation</h3>
-                <p class="text-gray-400 text-sm leading-relaxed word-keep-all">
-                    본 파이프라인은 업계 표준 미디어 엔진(libwebrtc)의 공식 확장 인터페이스를 활용합니다.
-                    엔진 내부를 직접 수정하지 않으며, 문서화된 확장 포인트만을 사용하여
-                    엔진 업데이트에 영향받지 않는 안정적인 구현을 보장합니다.
+                <p class="text-gray-400 text-sm leading-relaxed word-keep-all mb-4">
+                    본 파이프라인은 서버 측 RTP 리라이팅과 클라이언트 표준 WebRTC API의 조합으로 구현됩니다.
+                    수신 오디오 지연 문제는 libwebrtc C++ 패치(AudioInterceptor)를 시도했으나
+                    이중 clock drift 문제로 폐기하고, <b class="text-white">서버 ptt_rewriter의 dynamic ts_gap 조정</b>으로 최종 해결했습니다.
+                    AudioInterceptor 패치는 libwebrtc 커스텀 빌드에 잔존하나 비활성화 상태입니다.
                 </p>
-                <div class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs font-mono">
-                    <div class="bg-white/[0.03] rounded-lg p-3 text-center"><div class="text-brand-rust font-bold">수신 보정 레이어</div><div class="text-gray-500 mt-1">엔진 확장 포인트 주입</div></div>
-                    <div class="bg-white/[0.03] rounded-lg p-3 text-center"><div class="text-brand-cyan font-bold">송신 제어</div><div class="text-gray-500 mt-1">표준 WebRTC API</div></div>
-                    <div class="bg-white/[0.03] rounded-lg p-3 text-center"><div class="text-green-400 font-bold">연결 관리</div><div class="text-gray-500 mt-1">엔진 설정값 동적 조정</div></div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs font-mono">
+                    <div class="bg-white/[0.03] rounded-lg p-3 text-center"><div class="text-brand-rust font-bold">수신 지연 해결</div><div class="text-gray-500 mt-1">서버 dynamic ts_gap (실측 완료)</div></div>
+                    <div class="bg-white/[0.03] rounded-lg p-3 text-center"><div class="text-brand-cyan font-bold">송신 제어</div><div class="text-gray-500 mt-1">표준 WebRTC API (구현 완료)</div></div>
+                    <div class="bg-white/[0.03] rounded-lg p-3 text-center"><div class="text-green-400 font-bold">카메라 준비</div><div class="text-gray-500 mt-1">CAMERA_READY + PLI 2발 (구현 완료)</div></div>
                 </div>
             </div>
         </section>
@@ -423,12 +650,15 @@
 
     <footer class="py-8 border-t border-white/5">
         <div class="max-w-5xl mx-auto px-4 sm:px-6 text-center text-sm text-gray-500 font-mono space-y-1">
-            <div>&copy; 2026 0xLENS Systems — Rx/Tx Pipeline Architecture v1.0</div>
+            <div>&copy; 2026 0xLENS Systems — Rx/Tx Pipeline Architecture v2.0</div>
+            <div class="text-[10px] text-gray-600">Updated 2026-03-15 — PTT Audio Delay Resolution 실측 반영</div>
         </div>
     </footer>
 
 <script>
 // author: kodeholic (powered by Claude)
+
+// Stage accordion
 document.getElementById('stageAccordion').addEventListener('click', e => {
     const card = e.target.closest('.stage-card');
     if (!card) return;
@@ -437,6 +667,18 @@ document.getElementById('stageAccordion').addEventListener('click', e => {
     if (!wasOpen) card.classList.add('open');
 });
 
+// Attempt timeline accordion
+document.getElementById('attemptTimeline').addEventListener('click', e => {
+    const item = e.target.closest('.attempt-item');
+    if (!item) return;
+    const header = e.target.closest('.attempt-header');
+    if (!header) return;
+    const wasOpen = item.classList.contains('open');
+    document.querySelectorAll('.attempt-item.open').forEach(i => i.classList.remove('open'));
+    if (!wasOpen) item.classList.add('open');
+});
+
+// ICE bars
 const iceData = [
     { label: '기본값 (Default)',  interval: 2.5,  max: 60, color: 'bg-red-500',    note: '2.5초 — 모뎀 지속 웨이크업' },
     { label: 'Stage 1~2',        interval: 12.5, max: 60, color: 'bg-green-500',   note: '10~15초 — NAT 타임아웃 내 안전 마진' },
@@ -451,28 +693,53 @@ iceData.forEach(r => {
     iceContainer.appendChild(row);
 });
 
+// Comparison bars (jbDelay max)
+const compData = [
+    { label: 'Interceptor (클라이언트)', value: 1055, max: 1200, color: 'bg-red-500',    textColor: 'text-red-400' },
+    { label: 'Silence Flush (서버)',     value: 1180, max: 1200, color: 'bg-yellow-500',  textColor: 'text-yellow-400' },
+    { label: 'Dynamic ts_gap (서버)',    value: 97,   max: 1200, color: 'bg-green-500',   textColor: 'text-green-400' },
+];
+const compContainer = document.getElementById('comparisonBars');
+compData.forEach(r => {
+    const w = (r.value / r.max * 100).toFixed(1);
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-3';
+    row.innerHTML = `<div class="w-44 sm:w-52 text-right text-xs font-mono text-gray-500 shrink-0">${r.label}</div><div class="flex-1 relative h-8 bg-white/5 rounded overflow-hidden"><div class="cbar cbar-enter absolute inset-y-0 left-0 ${r.color}/60 rounded" style="width:${w}%"></div><span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-mono font-bold ${r.textColor}">${r.value}ms</span></div>`;
+    compContainer.appendChild(row);
+});
+
+// Feasibility matrix (현행화)
 const feasibility = [
-    { name: 'Audio Decoder Warm-keeping', status: 'proven', note: 'SFU 서버 검증 로직 이식' },
-    { name: 'Seamless Stream Continuity', status: 'proven', note: '미디어 엔진 공식 확장 포인트' },
-    { name: 'Tx Stage 1 — Soft-Mute', status: 'proven', note: '표준 WebRTC API' },
-    { name: 'Tx Stage 2 — Hard-Mute', status: 'proven', note: '표준 API + 시그널링 확장' },
+    { name: 'Rx Audio — Dynamic ts_gap (서버)', status: 'measured', note: 'jbDelay 최대 97ms, 누적 없음, G.114 정상 범위' },
+    { name: 'Rx Audio — Silence Flush 3발 (서버)', status: 'proven', note: 'NACK list full 해소 + ts_gap 기준점 제공' },
+    { name: 'Rx Audio — C++ AudioInterceptor (클라이언트)', status: 'rejected', note: '이중 clock drift — 구조적 실패, 비활성화' },
+    { name: 'Tx Stage 1 — Soft-Mute', status: 'proven', note: '표준 WebRTC API · 구현 완료' },
+    { name: 'Tx Stage 2 — Hard-Mute', status: 'proven', note: '표준 API + CAMERA_READY 시그널링 · 구현 완료' },
     { name: 'Tx Stage 3 — Deep Sleep', status: 'conditional', note: 'NAT 타임아웃 환경별 실측 필요' },
     { name: 'NAT Traversal Optimization', status: 'conditional', note: '통신사별 실측 필요' },
-    { name: 'Client-driven Readiness (Camera Warmup)', status: 'proven', note: '플랫폼별 콜백 검증 필요' },
-    { name: 'Signaling Disconnection → Full Cold Start', status: 'proven', note: '무조건 수행' },
+    { name: 'Client-driven Readiness (Camera Warmup)', status: 'proven', note: 'CAMERA_READY → PLI 2발 + VIDEO_RESUMED · 구현 완료' },
+    { name: 'Signaling Disconnection → Full Cold Start', status: 'proven', note: '무조건 수행 · 기구현' },
 ];
 const feasContainer = document.getElementById('feasibilityList');
 feasibility.forEach(item => {
-    const isProven = item.status === 'proven';
-    const statusCls = isProven ? 'status-proven' : 'status-conditional';
-    const statusText = isProven ? '✅ Proven' : '⚠️ Field-test';
+    let statusCls, statusText;
+    switch(item.status) {
+        case 'measured':    statusCls = 'status-measured';    statusText = '📊 Measured'; break;
+        case 'proven':      statusCls = 'status-proven';      statusText = '✅ Proven'; break;
+        case 'conditional': statusCls = 'status-conditional';  statusText = '⚠️ Field-test'; break;
+        case 'rejected':    statusCls = 'status-rejected';     statusText = '❌ Rejected'; break;
+    }
     const row = document.createElement('div');
     row.className = 'flex items-center gap-4 bg-brand-surface border border-white/5 rounded-lg px-4 py-3';
     row.innerHTML = `<div class="inline-flex items-center px-2.5 py-1 rounded-md border text-[10px] font-mono font-bold shrink-0 ${statusCls}">${statusText}</div><div class="flex-1 min-w-0"><div class="text-sm text-white font-medium truncate">${item.name}</div><div class="text-[10px] text-gray-500 font-mono mt-0.5">${item.note}</div></div>`;
     feasContainer.appendChild(row);
 });
 
-setTimeout(() => { document.querySelectorAll('.bar-enter').forEach(el => el.classList.remove('bar-enter')); }, 300);
+// Animate bars on load
+setTimeout(() => {
+    document.querySelectorAll('.bar-enter').forEach(el => el.classList.remove('bar-enter'));
+    document.querySelectorAll('.cbar-enter').forEach(el => el.classList.remove('cbar-enter'));
+}, 300);
 </script>
 </body>
 </html>
