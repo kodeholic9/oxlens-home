@@ -34,6 +34,10 @@ export class MediaSession {
 
     // Phase E-5: PTT 모드 subscribe SDP 옵션
     this._sdpOptions = null;
+
+    // Subscribe PC re-negotiation 직렬화 큐
+    // 동시에 여러 TRACKS_UPDATE가 도착해도 순차 처리
+    this._subPcQueue = Promise.resolve();
   }
 
   // ── Getters ──
@@ -144,8 +148,62 @@ export class MediaSession {
     }
 
     if (this._serverConfig) {
-      await this._setupSubscribePc();
+      await this._queueSubscribePc();
     }
+  }
+
+  // ============================================================
+  //  TRACKS_RESYNC → subscribe 트랙 전체 교체 + subscribe PC 재생성
+  // ============================================================
+
+  async onTracksResync(tracks) {
+    console.log("[MEDIA] TRACKS_RESYNC: replacing subscribe tracks", JSON.stringify(tracks));
+
+    // 1. subscribe PC 닫기
+    if (this._subPc) {
+      this._subPc.ontrack = null;
+      this._subPc.oniceconnectionstatechange = null;
+      this._subPc.onconnectionstatechange = null;
+      this._subPc.onicegatheringstatechange = null;
+      this._subPc.onicecandidate = null;
+      this._subPc.close();
+      this._subPc = null;
+    }
+
+    // 2. subscribe 트랙 목록 통째 교체 (mid 재배치)
+    this._nextMid = 0;
+    this._subscribeTracks = (tracks || []).map((t) => ({
+      ...t, active: true, mid: String(this._nextMid++),
+    }));
+
+    // 3. subscribe PC 재생성
+    if (this._serverConfig) {
+      await this._queueSubscribePc();
+    }
+  }
+
+  // ============================================================
+  //  TRACKS_ACK — 현재 인식한 subscribe SSRC 목록 서버에 보고
+  // ============================================================
+
+  sendTracksAck() {
+    const ssrcs = this._subscribeTracks
+      .filter((t) => t.active !== false)
+      .map((t) => t.ssrc)
+      .filter((s) => s != null);
+    console.log("[MEDIA] sendTracksAck ssrcs:", ssrcs);
+    this.sdk.sig.send(OP.TRACKS_ACK, { ssrcs });
+  }
+
+  // ============================================================
+  //  Subscribe PC re-nego 직렬화 큐
+  // ============================================================
+
+  _queueSubscribePc() {
+    this._subPcQueue = this._subPcQueue
+      .then(() => this._setupSubscribePc())
+      .catch((e) => console.error("[MEDIA] subscribe PC queue error:", e));
+    return this._subPcQueue;
   }
 
   // ============================================================
@@ -393,5 +451,6 @@ export class MediaSession {
     this._sdpOptions = null;
     this._subscribeTracks = [];
     this._nextMid = 0;
+    this._subPcQueue = Promise.resolve();
   }
 }

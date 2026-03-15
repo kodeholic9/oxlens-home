@@ -62,6 +62,8 @@ export function renderServerMetrics() {
     ["no_rtx", m.nack_no_rtx],
     ["lk_fail", m.cache_lock_fail],
     ["eg_drop", m.egress_drop],
+    ["ack_mis", m.tracks_ack_mismatch],
+    ["resync", m.tracks_resync_sent],
   ].forEach(([label, val]) => {
     const cls = val > 0 ? "text-white" : "text-gray-600";
     html += `<div class="px-2 py-0.5 bg-brand-dark rounded flex justify-between"><span class="text-gray-400">${label}</span><span class="${cls}">${val ?? 0}</span></div>`;

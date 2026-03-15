@@ -204,6 +204,10 @@ function handleAdminMessage(msg) {
           serverEventLog.push({ ts, type: "sfu_drop", count: msg.egress_drop });
         if ((msg.encrypt_fail || 0) > 0)
           serverEventLog.push({ ts, type: "sfu_enc_fail", count: msg.encrypt_fail });
+        if ((msg.tracks_ack_mismatch || 0) > 0)
+          serverEventLog.push({ ts, type: "sfu_tracks_mismatch", count: msg.tracks_ack_mismatch });
+        if ((msg.tracks_resync_sent || 0) > 0)
+          serverEventLog.push({ ts, type: "sfu_tracks_resync", count: msg.tracks_resync_sent });
         if ((msg.decrypt_fail || 0) > 0)
           serverEventLog.push({ ts, type: "sfu_dec_fail", count: msg.decrypt_fail });
         if (msg.ptt) {

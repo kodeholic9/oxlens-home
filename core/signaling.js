@@ -187,6 +187,11 @@ export class Signaling {
         this.sdk.emit("video:resumed", d);
         break;
 
+      case OP.TRACKS_RESYNC:
+        this.ack(op, pid);
+        this.sdk._onTracksResync(d);
+        break;
+
       // --- Floor Control Events ---
       case OP.FLOOR_TAKEN:
         this.ack(op, pid);
@@ -246,6 +251,14 @@ export class Signaling {
 
       case OP.CAMERA_READY:
         console.log("[SIG] camera_ready ack");
+        break;
+
+      case OP.TRACKS_ACK:
+        if (d.synced) {
+          console.log("[SIG] tracks_ack: synced");
+        } else {
+          console.log("[SIG] tracks_ack: mismatch, resync_sent=", d.resync_sent);
+        }
         break;
 
       case OP.MESSAGE:

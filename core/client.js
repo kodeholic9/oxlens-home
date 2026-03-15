@@ -573,6 +573,9 @@ export class OxLensClient extends EventEmitter {
     this.emit("room:joined", { ...d, participants });
     this.tel.start();
 
+    // 초기 트랙에 대한 TRACKS_ACK (입장 시 받은 트랙 목록 확인)
+    this.media.sendTracksAck();
+
     // PTT 모드: 초기 미디어 상태 적용 (floor=IDLE → audio/video 전부 off)
     if (this.roomMode === "ptt") {
       await this._applyPttMediaState();
@@ -595,7 +598,27 @@ export class OxLensClient extends EventEmitter {
       this.emit("error", { code: 4003, msg: `subscribe re-nego failed: ${e.message}` });
     }
 
+    // TRACKS_ACK: 현재 인식한 SSRC set 서버에 보고
+    this.media.sendTracksAck();
     this.emit("tracks:update", d);
+  }
+
+  /** signaling._handleEvent(TRACKS_RESYNC) → subscribe PC 통째 재생성 */
+  async _onTracksResync(d) {
+    const { tracks } = d;
+    console.log(`[SDK] TRACKS_RESYNC received: ${(tracks || []).length} tracks`);
+
+    try {
+      await this.media.onTracksResync(tracks);
+      setTimeout(() => this.tel.sendSdpTelemetry(), 1000);
+    } catch (e) {
+      console.error("[SDK] tracks resync failed:", e);
+      this.emit("error", { code: 4004, msg: `tracks resync failed: ${e.message}` });
+    }
+
+    // RESYNC 완료 후 다시 TRACKS_ACK
+    this.media.sendTracksAck();
+    this.emit("tracks:resync", d);
   }
 }
 

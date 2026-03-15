@@ -21,6 +21,7 @@ export const OP = Object.freeze({
   ROOM_JOIN: 11,
   ROOM_LEAVE: 12,
   PUBLISH_TRACKS: 15,
+  TRACKS_ACK: 16,       // subscribe SSRC 확인 응답
   MUTE_UPDATE: 17,
   CAMERA_READY: 18,     // 카메라 웜업 완료 (첫 프레임 → PLI 트리거)
   MESSAGE: 20,
@@ -38,6 +39,7 @@ export const OP = Object.freeze({
   MESSAGE_EVENT: 103,
   VIDEO_SUSPENDED: 104,  // 비디오 중단 (카메라 off) — UI avatar 전환
   VIDEO_RESUMED: 105,    // 비디오 재개 (카메라 on) — UI 복원
+  TRACKS_RESYNC: 106,    // 트랙 전체 재동기화 (TRACKS_ACK 불일치 시)
 
   // Floor Control Events
   FLOOR_TAKEN: 141,
