@@ -193,11 +193,31 @@
                 class="block px-4 py-2.5 text-gray-400 hover:text-white hover:bg-white/5 transition text-xs"
                 >Rx/Tx Pipeline</a
               >
+              <a
+                href="./docs/architecture.html"
+                class="block px-4 py-2.5 text-gray-400 hover:text-white hover:bg-white/5 transition text-xs"
+                >System Architecture</a
+              >
+              <a
+                href="./docs/ptt-design.html"
+                class="block px-4 py-2.5 text-yellow-400 hover:text-white hover:bg-white/5 transition text-xs font-semibold"
+                >PTT Design</a
+              >
               <div class="border-t border-white/5 my-1"></div>
+              <a
+                href="./docs/ai-native.html"
+                class="block px-4 py-2.5 text-brand-cyan hover:text-white hover:bg-white/5 transition text-xs font-semibold"
+                >AI-Native SFU</a
+              >
               <a
                 href="./docs/postmortem-rust-android.html"
                 class="block px-4 py-2.5 text-gray-400 hover:text-white hover:bg-white/5 transition text-xs"
                 >Post-Mortem: Rust Android</a
+              >
+              <a
+                href="./docs/sdk-genesis.html"
+                class="block px-4 py-2.5 text-brand-rust hover:text-white hover:bg-white/5 transition text-xs font-semibold"
+                >SDK Genesis: 7일간의 기록</a
               >
             </div>
           </div>
@@ -301,9 +321,30 @@
           >└ Rx/Tx Pipeline</a
         >
         <a
+          href="./docs/architecture.html"
+          class="text-gray-400 hover:text-white transition pl-4 text-base"
+          >└ System Architecture</a
+        >
+        <a
+          href="./docs/ptt-design.html"
+          class="text-yellow-400 hover:text-white transition pl-4 text-base font-semibold"
+          >└ PTT Design ★</a
+        >
+        <a
+          href="./docs/ai-native.html"
+          class="text-brand-cyan hover:text-white transition pl-4 text-base font-semibold"
+          onclick="closeMobileNav()"
+          >└ AI-Native SFU ★</a
+        >
+        <a
           href="./docs/postmortem-rust-android.html"
           class="text-red-400/70 hover:text-white transition pl-4 text-base"
           >└ Post-Mortem: Rust Android</a
+        >
+        <a
+          href="./docs/sdk-genesis.html"
+          class="text-brand-rust hover:text-white transition pl-4 text-base font-semibold"
+          >└ SDK Genesis: 7일간의 기록 ★</a
         >
         <div class="pt-4 border-t border-white/10">
           <button
@@ -473,10 +514,24 @@
               <code class="text-brand-rust/80">scp</code> 하나로 배포합니다.
               Docker도, JVM도, node_modules도 없습니다.
             </p>
-            <div class="mt-4 pt-4 border-t border-white/5 text-xs text-gray-500 leading-relaxed word-keep-all space-y-1.5">
-              <div><span class="text-brand-rust font-bold font-mono">Ingress</span> — <code class="text-gray-400">SO_REUSEPORT</code> × 4 워커로 수신+복호화를 커널 레벨 분산</div>
-              <div><span class="text-brand-rust font-bold font-mono">Egress</span> — Subscriber별 전용 task가 암호화+송신을 독점. Mutex 경합 제로</div>
-              <div><span class="text-gray-400">→ 30인 conference loss <b class="text-green-400">0.000%</b>, latency <b class="text-brand-cyan">15ms</b></span></div>
+            <div
+              class="mt-4 pt-4 border-t border-white/5 text-xs text-gray-500 leading-relaxed word-keep-all space-y-1.5"
+            >
+              <div>
+                <span class="text-brand-rust font-bold font-mono">Ingress</span>
+                — <code class="text-gray-400">SO_REUSEPORT</code> × 4 워커로
+                수신+복호화를 커널 레벨 분산
+              </div>
+              <div>
+                <span class="text-brand-rust font-bold font-mono">Egress</span>
+                — Subscriber별 전용 task가 암호화+송신을 독점. Mutex 경합 제로
+              </div>
+              <div>
+                <span class="text-gray-400"
+                  >→ 30인 conference loss <b class="text-green-400">0.000%</b>,
+                  latency <b class="text-brand-cyan">15ms</b></span
+                >
+              </div>
             </div>
           </div>
 
@@ -493,17 +548,34 @@
               5-Stage Telemetry
             </h3>
             <p class="text-gray-400 text-sm leading-relaxed word-keep-all">
-              SDP 상태(S), 인코더(A), SFU 릴레이(B), Jitter Buffer(C),
-              PTT 진단(P). 5개 구간을 3초 주기로 수집하되, 미디어 처리
-              성능에는 영향을 주지 않습니다. 관측이 품질을 떨어뜨리면
-              관측의 의미가 없으니까요.
+              SDP 상태(S), 인코더(A), SFU 릴레이(B), Jitter Buffer(C), PTT
+              진단(P). 5개 구간을 3초 주기로 수집하되, 미디어 처리 성능에는
+              영향을 주지 않습니다. 관측이 품질을 떨어뜨리면 관측의 의미가
+              없으니까요.
             </p>
-            <div class="mt-4 pt-4 border-t border-white/5 text-xs text-gray-500 leading-relaxed word-keep-all space-y-1.5">
-              <div><span class="text-white font-bold font-mono">S</span> — Fake SDP 상태 + 코덱 정보 1회 보고. 협상 없이 즉시 연결</div>
-              <div><span class="text-white font-bold font-mono">A</span> — 인코더 fps, bitrate, quality_limit, hugeFrames delta</div>
-              <div><span class="text-white font-bold font-mono">B</span> — SFU 릴레이 avg/p95/max latency + NACK/RTX 히트율</div>
-              <div><span class="text-white font-bold font-mono">C</span> — 수신 측 jitter, JB delay delta, freeze, concealment</div>
-              <div><span class="text-white font-bold font-mono">P</span> — PTT 트랙/인코더/PC 건강성 진단</div>
+            <div
+              class="mt-4 pt-4 border-t border-white/5 text-xs text-gray-500 leading-relaxed word-keep-all space-y-1.5"
+            >
+              <div>
+                <span class="text-white font-bold font-mono">S</span> — Fake SDP
+                상태 + 코덱 정보 1회 보고. 협상 없이 즉시 연결
+              </div>
+              <div>
+                <span class="text-white font-bold font-mono">A</span> — 인코더
+                fps, bitrate, quality_limit, hugeFrames delta
+              </div>
+              <div>
+                <span class="text-white font-bold font-mono">B</span> — SFU
+                릴레이 avg/p95/max latency + NACK/RTX 히트율
+              </div>
+              <div>
+                <span class="text-white font-bold font-mono">C</span> — 수신 측
+                jitter, JB delay delta, freeze, concealment
+              </div>
+              <div>
+                <span class="text-white font-bold font-mono">P</span> — PTT
+                트랙/인코더/PC 건강성 진단
+              </div>
             </div>
           </div>
 
@@ -526,10 +598,21 @@
               NACK → RTX 히트율, PLI → 키프레임 전달, JB 지연 — 숫자가 O/X를
               말합니다.
             </p>
-            <div class="mt-4 pt-4 border-t border-white/5 text-xs text-gray-500 leading-relaxed word-keep-all space-y-1.5">
-              <div><span class="text-brand-cyan font-bold font-mono">PASS</span> — NACK → RTX 100% 히트, PLI → 키프레임 전달 확인</div>
-              <div><span class="text-yellow-400 font-bold font-mono">WARN</span> — bitrate 적응 지연, JB delay 임계 초과</div>
-              <div><span class="text-red-400 font-bold font-mono">FAIL</span> — TWCC 미구현, 패킷 손실율 초과 — 즉시 대응 필요</div>
+            <div
+              class="mt-4 pt-4 border-t border-white/5 text-xs text-gray-500 leading-relaxed word-keep-all space-y-1.5"
+            >
+              <div>
+                <span class="text-brand-cyan font-bold font-mono">PASS</span> —
+                NACK → RTX 100% 히트, PLI → 키프레임 전달 확인
+              </div>
+              <div>
+                <span class="text-yellow-400 font-bold font-mono">WARN</span> —
+                bitrate 적응 지연, JB delay 임계 초과
+              </div>
+              <div>
+                <span class="text-red-400 font-bold font-mono">FAIL</span> —
+                TWCC 미구현, 패킷 손실율 초과 — 즉시 대응 필요
+              </div>
             </div>
           </div>
         </div>
@@ -783,6 +866,119 @@
         </div>
       </section>
 
+      <!-- SDK Genesis — Android SDK 탄생기 -->
+      <section
+        id="sdk-genesis"
+        class="max-w-7xl mx-auto px-4 sm:px-6 py-16 sm:py-20 border-t border-white/5"
+      >
+        <div class="flex flex-col lg:flex-row gap-8 lg:gap-12 items-center">
+          <!-- 좌측: 텍스트 -->
+          <div class="lg:w-1/2">
+            <div
+              class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-rust/10 border border-brand-rust/20 text-xs font-mono text-brand-rust mb-4"
+            >
+              <span class="w-2 h-2 rounded-full bg-brand-rust"></span>
+              7 Days · 13 Sessions · 1 Pivot
+            </div>
+            <h2 class="text-2xl sm:text-3xl font-bold mb-4 word-keep-all">
+              Android SDK <span class="text-gradient">탄생기</span>
+            </h2>
+            <p class="text-gray-400 text-sm leading-relaxed word-keep-all mb-4">
+              Rust 코어 SDK 설계부터 시작해, 크로스 빌드 성공의 환희,
+              <strong class="text-white">SIGSEGV 한 줄에 무너진 이틀</strong>,
+              그리고 Kotlin으로의 전면 전환. 전환 후 반나절 만에 Rust 4일치
+              기능을 넘어선 생산성.
+            </p>
+            <p class="text-gray-400 text-sm leading-relaxed word-keep-all mb-6">
+              양방향 음성·영상, PTT Floor Control, Camera2, Mute 3-state,
+              TRACKS_ACK/RESYNC까지 —
+              <strong class="text-white">13개 세션이 만든 기록</strong>.
+            </p>
+            <a
+              href="./docs/sdk-genesis.html"
+              class="inline-flex items-center gap-2 font-mono text-sm px-6 py-3 bg-brand-rust/10 text-brand-rust border border-brand-rust/30 rounded hover:bg-brand-rust/20 hover:shadow-[0_0_15px_rgba(228,91,37,0.3)] transition-all duration-300"
+            >
+              &gt; 7일간의 전체 기록 보기
+            </a>
+          </div>
+
+          <!-- 우측: 타임라인 미니맵 -->
+          <div class="lg:w-1/2 w-full">
+            <div
+              class="bg-brand-surface border border-white/10 rounded-2xl p-5 sm:p-6"
+            >
+              <div class="space-y-3 text-sm">
+                <div class="flex items-center gap-3">
+                  <span
+                    class="w-2 h-2 rounded-full bg-green-500 shrink-0"
+                  ></span>
+                  <span class="font-mono text-xs text-gray-500 w-12 shrink-0"
+                    >D1-4</span
+                  >
+                  <span class="text-gray-300 word-keep-all"
+                    >Rust 코어 SDK — SDP 빌더, 오케스트레이터, E2E 올패스</span
+                  >
+                </div>
+                <div class="flex items-center gap-3">
+                  <span
+                    class="w-2 h-2 rounded-full bg-green-500 shrink-0"
+                  ></span>
+                  <span class="font-mono text-xs text-gray-500 w-12 shrink-0"
+                    >D6-AM</span
+                  >
+                  <span class="text-gray-300 word-keep-all"
+                    >Android 크로스 빌드 성공 —
+                    <code class="text-cyan-400 text-xs">.so</code> 20MB
+                    생성</span
+                  >
+                </div>
+                <div class="flex items-center gap-3">
+                  <span class="w-2 h-2 rounded-full bg-red-500 shrink-0"></span>
+                  <span class="font-mono text-xs text-gray-500 w-12 shrink-0"
+                    >D6-PM</span
+                  >
+                  <span class="text-red-400 word-keep-all font-medium"
+                    >💥 SIGSEGV — getauxval null deref →
+                    <span class="text-brand-rust font-bold">PIVOT</span></span
+                  >
+                </div>
+                <div class="flex items-center gap-3">
+                  <span
+                    class="w-2 h-2 rounded-full bg-brand-cyan shrink-0"
+                  ></span>
+                  <span class="font-mono text-xs text-gray-500 w-12 shrink-0"
+                    >D6-EVE</span
+                  >
+                  <span class="text-brand-cyan word-keep-all"
+                    >Kotlin 전환 → 반나절 만에 양방향 음성·영상 E2E</span
+                  >
+                </div>
+                <div class="flex items-center gap-3">
+                  <span
+                    class="w-2 h-2 rounded-full bg-green-500 shrink-0"
+                  ></span>
+                  <span class="font-mono text-xs text-gray-500 w-12 shrink-0"
+                    >D7</span
+                  >
+                  <span class="text-gray-300 word-keep-all"
+                    >PTT, Mute, Camera2, TRACKS_ACK — 안정성 하드닝 완료</span
+                  >
+                </div>
+              </div>
+              <div
+                class="mt-5 pt-4 border-t border-white/5 flex items-center justify-between text-xs font-mono"
+              >
+                <span class="text-gray-500">20+ 기능 구현</span>
+                <span class="text-gray-500">3 SIGABRT 해결</span>
+                <span class="text-brand-rust font-bold"
+                  >Show me the money.</span
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- AI 스냅샷 뷰어 -->
       <section
         id="ai-diagnostics"
@@ -885,6 +1081,69 @@ duration: 180s (since join)
           </div>
         </div>
       </section>
+
+      <!-- AI-Native SFU -->
+      <section id="ai-native" class="py-16 sm:py-20">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6">
+          <div class="text-center mb-12">
+            <h2 class="text-2xl sm:text-3xl font-bold mb-4 word-keep-all">
+              AI-Native <span class="text-brand-rust">SFU</span>
+            </h2>
+            <p
+              class="text-gray-400 text-sm max-w-2xl mx-auto word-keep-all leading-relaxed"
+            >
+              엔지니어가 방향을 잡고, AI가 실행을 주도합니다.<br />
+              텔레메트리 → 분석 → 코드 수정 → 배포 → 검증, 단일 세션에 완결.
+            </p>
+          </div>
+
+          <div class="grid md:grid-cols-3 gap-6 mb-10">
+            <!-- Card 1 -->
+            <div class="bg-brand-surface rounded-xl p-6 border border-white/5">
+              <div class="text-2xl mb-3">🧠</div>
+              <h3 class="font-bold text-white mb-2 word-keep-all">
+                엔지니어의 직관 + AI의 정밀함
+              </h3>
+              <p class="text-sm text-gray-400 word-keep-all leading-relaxed">
+                엔지니어가 "lost 버스트를 잡자"라고 방향을 제시하면, AI가 240개
+                데이터 포인트를 교차 분석하여 근본 원인을 특정합니다.
+              </p>
+            </div>
+            <!-- Card 2 -->
+            <div class="bg-brand-surface rounded-xl p-6 border border-white/5">
+              <div class="text-2xl mb-3">🔗</div>
+              <h3 class="font-bold text-white mb-2 word-keep-all">
+                AI 추론을 위한 데이터 구조
+              </h3>
+              <p class="text-sm text-gray-400 word-keep-all leading-relaxed">
+                Publish→SFU→Subscribe 전 경로를 분리하여 AI가 인과관계를
+                추론합니다. 이 구조가 없으면 AI도 "네트워크 문제인 것 같습니다"
+                수준의 답변밖에 못합니다.
+              </p>
+            </div>
+            <!-- Card 3 -->
+            <div class="bg-brand-surface rounded-xl p-6 border border-white/5">
+              <div class="text-2xl mb-3">⚡</div>
+              <h3 class="font-bold text-white mb-2 word-keep-all">
+                30분 만에 장애 해결
+              </h3>
+              <p class="text-sm text-gray-400 word-keep-all leading-relaxed">
+                텔레메트리 스냅샷 전달 → AI가 RTX 폭풍을 진단 → 코드 수정 → RPi
+                배포 → 검증 완료. 실제 디버깅 사례에서 검증된 사이클입니다.
+              </p>
+            </div>
+          </div>
+
+          <div class="text-center">
+            <a
+              href="./docs/ai-native.html"
+              class="inline-flex items-center gap-2 font-mono text-sm px-6 py-3 bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/30 rounded hover:bg-brand-cyan/20 hover:shadow-[0_0_15px_rgba(0,240,255,0.3)] transition-all duration-300"
+            >
+              &gt; 디버깅 사례 + 시장 비교 보기
+            </a>
+          </div>
+        </div>
+      </section>
     </main>
 
     <!-- Footer -->
@@ -930,4 +1189,3 @@ duration: 180s (since join)
     </script>
   </body>
 </html>
-

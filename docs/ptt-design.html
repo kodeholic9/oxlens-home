@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="ko">
+<!--
+  @author: kodeholic (powered by Claude)
+  @description: 0xLENS — PTT Design Philosophy: Floor Control + SSRC Rewriting + NetEQ
+  @version: v1.0.0
+-->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>0xLENS — PTT Design</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Pretendard', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        brand: { rust: '#E45B25', cyan: '#00F0FF', dark: '#0B0F19', surface: '#151B2B' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #0B0F19; color: #E2E8F0; }
+        .bg-grid {
+            background-size: 40px 40px;
+            background-image: linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+                              linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
+        }
+        .text-gradient { background: linear-gradient(to right, #E45B25, #FF8A50); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .text-gradient-cyan { background: linear-gradient(to right, #00F0FF, #60a5fa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0B0F19; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        .word-keep-all { word-break: keep-all; }
+        .code-block { background: #1e293b; border: 1px solid #334155; border-radius: 8px; }
+        .quote-bar { border-left: 3px solid #E45B25; }
+        .layer-card { transition: all 0.2s ease; }
+        .layer-card:hover { border-color: rgba(0,240,255,0.25); transform: translateY(-1px); }
+        .fsm-node { transition: all 0.2s ease; }
+        .fsm-node:hover { transform: scale(1.03); }
+    </style>
+</head>
+<body class="bg-grid min-h-screen font-sans antialiased selection:bg-brand-rust selection:text-white">
+
+<!-- Header -->
+<header class="sticky top-0 z-50 bg-brand-dark/90 backdrop-blur-md border-b border-white/10">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+        <a href="../index.html" class="flex items-center gap-2">
+            <span class="font-mono text-xl font-extrabold tracking-tight">
+                <span class="text-brand-rust">0x</span><span class="text-white">LENS</span>
+            </span>
+            <span class="text-gray-600 text-xs font-mono">PTT Design</span>
+        </a>
+        <nav class="flex items-center gap-4 text-xs font-mono text-gray-500">
+            <a href="../index.html" class="hover:text-white transition">&larr; Home</a>
+            <a href="./architecture.html" class="hover:text-white transition">Architecture</a>
+            <a href="./rx-tx-pipeline.html" class="hover:text-white transition">Rx/Tx Pipeline</a>
+            <a href="./sdk-genesis.html" class="hover:text-white transition">SDK Genesis</a>
+        </nav>
+    </div>
+</header>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- HERO -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="max-w-5xl mx-auto px-4 sm:px-6 pt-12 sm:pt-20 pb-8">
+    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs font-mono text-yellow-400 mb-6">
+        <span class="w-2 h-2 rounded-full bg-yellow-400"></span>
+        3GPP TS 24.380 · MCPTT Floor Control · Virtual SSRC · Adaptive Timestamp Alignment
+    </div>
+    <h1 class="text-3xl sm:text-5xl font-extrabold text-white leading-tight mb-6 tracking-tight word-keep-all">
+        <span class="text-gradient">N명의 화자</span>를<br>
+        <span class="text-gradient-cyan">하나의 스트림</span>으로.
+    </h1>
+    <p class="text-gray-400 text-base sm:text-lg leading-relaxed max-w-3xl word-keep-all">
+        무전기(PTT)에서 가장 어려운 문제는 <strong class="text-white">화자가 바뀔 때마다 수신 측의 오디오가 끊기지 않게 하는 것</strong>입니다.
+        0xLENS는 서버에서 <strong class="text-white">가상 SSRC 스트림을 생성</strong>하여,
+        수신 측 디코더가 화자 교체를 전혀 인지하지 못하게 합니다.
+        그리고 <strong class="text-white">NetEQ의 jitter buffer에 정확한 타이밍 정보를 제공</strong>하여, 침묵 구간 후에도 지연이 누적되지 않게 합니다.
+    </p>
+</section>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 1: CONF vs PTT -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+    <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">01 — CONFERENCE vs PTT</h2>
+    <h3 class="text-2xl font-bold mb-6 word-keep-all">같은 서버, 두 가지 모드</h3>
+
+    <div class="grid md:grid-cols-2 gap-6 mb-8">
+        <div class="bg-brand-surface rounded-xl border border-brand-cyan/30 p-6">
+            <div class="text-brand-cyan font-mono font-bold text-sm mb-3">Conference</div>
+            <div class="text-sm text-slate-400 space-y-2 word-keep-all">
+                <p><strong class="text-white">전원 동시 발화.</strong> N명이 각자의 SSRC로 오디오/비디오를 전송합니다.</p>
+                <p>서버는 단순 fan-out: A의 패킷을 B, C, D에게 그대로 릴레이.</p>
+                <p>수신 측은 참가자별 별도 디코더로 동시 재생.</p>
+                <div class="code-block p-3 font-mono text-[10px] text-slate-400 mt-3">
+                    A(ssrc=100) ──→ SFU ──→ B 디코더(ssrc=100)<br>
+                    B(ssrc=200) ──→ SFU ──→ A 디코더(ssrc=200)<br>
+                    C(ssrc=300) ──→ SFU ──→ A 디코더(ssrc=300), B 디코더(ssrc=300)
+                </div>
+            </div>
+        </div>
+        <div class="bg-brand-surface rounded-xl border border-brand-rust/30 p-6">
+            <div class="text-brand-rust font-mono font-bold text-sm mb-3">PTT (Push-to-Talk)</div>
+            <div class="text-sm text-slate-400 space-y-2 word-keep-all">
+                <p><strong class="text-white">1인 발화, N-1명 청취.</strong> 발화권(Floor)을 획득한 1명만 전송합니다.</p>
+                <p>서버는 <strong class="text-white">가상 SSRC로 리라이팅</strong>하여 단일 스트림으로 통합합니다.</p>
+                <p>수신 측은 <strong class="text-white">디코더 1개</strong>로 모든 화자의 음성을 재생.</p>
+                <div class="code-block p-3 font-mono text-[10px] text-slate-400 mt-3">
+                    A(ssrc=100) ──→ SFU <span class="text-brand-rust">rewrite</span> ──→ 가상(ssrc=<span class="text-brand-cyan">999</span>) ──→ B,C<br>
+                    B(ssrc=200) ──→ SFU <span class="text-brand-rust">rewrite</span> ──→ 가상(ssrc=<span class="text-brand-cyan">999</span>) ──→ A,C<br>
+                    <span class="text-slate-600">// 수신 측은 항상 ssrc=999 하나만 봄</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="quote-bar bg-brand-surface rounded-r-xl px-5 py-4">
+        <p class="text-slate-400 text-sm italic word-keep-all">
+            "Conference는 N개의 파이프를 그대로 연결한다.
+            PTT는 N개의 파이프를 하나의 파이프로 합친다 — 이음새가 보이면 안 된다."
+        </p>
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 2: FLOOR CONTROL -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+    <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">02 — FLOOR CONTROL</h2>
+    <h3 class="text-2xl font-bold mb-4 word-keep-all">발화권 중재 — 3GPP TS 24.380 기반</h3>
+    <p class="text-slate-400 mb-8 word-keep-all">
+        무전기의 핵심은 <strong class="text-white">"누가 지금 말할 수 있는가"</strong>를 중재하는 것입니다.
+        0xLENS의 Floor Control은 3GPP MCPTT(Mission Critical PTT) 표준의 용어와 상태 머신을 따릅니다.
+    </p>
+
+    <!-- Server FSM -->
+    <div class="bg-brand-surface rounded-2xl border border-white/10 p-6 mb-8">
+        <h4 class="text-white font-bold mb-4">서버 상태 머신 (FloorController)</h4>
+        <div class="flex flex-col sm:flex-row items-center gap-6 justify-center mb-6">
+            <div class="fsm-node bg-green-500/15 border-2 border-green-500/50 rounded-xl px-6 py-4 text-center">
+                <div class="text-green-400 font-mono font-bold">IDLE</div>
+                <div class="text-[10px] text-slate-500 mt-1">채널 비어있음</div>
+            </div>
+            <div class="text-slate-500 text-xs font-mono hidden sm:block">
+                FLOOR_REQUEST →<br>
+                ← FLOOR_RELEASE / T2 / PING timeout
+            </div>
+            <div class="fsm-node bg-brand-rust/15 border-2 border-brand-rust/50 rounded-xl px-6 py-4 text-center">
+                <div class="text-brand-rust font-mono font-bold">TAKEN</div>
+                <div class="text-[10px] text-slate-500 mt-1">speaker 발화 중</div>
+            </div>
+        </div>
+        <div class="grid sm:grid-cols-2 gap-4 text-xs text-slate-400">
+            <div class="space-y-1.5">
+                <div class="text-white font-bold text-sm mb-2">IDLE → TAKEN</div>
+                <div>▸ FLOOR_REQUEST(op=40) 수신 → <span class="text-green-400">Granted</span></div>
+                <div>▸ 요청자에게 Granted, 전체에 FLOOR_TAKEN(op=141) 브로드캐스트</div>
+                <div>▸ ptt_rewriter: switch_speaker() — 가상 SSRC 오프셋 갱신</div>
+            </div>
+            <div class="space-y-1.5">
+                <div class="text-white font-bold text-sm mb-2">TAKEN → IDLE</div>
+                <div>▸ FLOOR_RELEASE(op=41) — 자진 해제</div>
+                <div>▸ T2 timeout(30초) — 최대 발화 시간 초과 → <span class="text-red-400">Revoke</span></div>
+                <div>▸ FLOOR_PING timeout(5초) — 발화자 사망 → <span class="text-red-400">Revoke</span></div>
+                <div>▸ ptt_rewriter: clear_speaker() — silence flush 3발 + cleared_at 기록</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Client FSM -->
+    <div class="bg-brand-surface rounded-2xl border border-white/10 p-6 mb-8">
+        <h4 class="text-white font-bold mb-4">클라이언트 상태 머신 (FloorFsm)</h4>
+        <div class="flex flex-wrap justify-center gap-3 mb-6">
+            <div class="fsm-node bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-2 text-center">
+                <div class="text-slate-300 font-mono font-bold text-xs">IDLE</div>
+            </div>
+            <div class="text-slate-600 text-xs self-center">→</div>
+            <div class="fsm-node bg-yellow-500/15 border border-yellow-500/30 rounded-lg px-4 py-2 text-center">
+                <div class="text-yellow-400 font-mono font-bold text-xs">REQUESTING</div>
+            </div>
+            <div class="text-slate-600 text-xs self-center">→</div>
+            <div class="fsm-node bg-green-500/15 border border-green-500/30 rounded-lg px-4 py-2 text-center">
+                <div class="text-green-400 font-mono font-bold text-xs">GRANTED</div>
+            </div>
+            <div class="text-slate-600 text-xs self-center">→</div>
+            <div class="fsm-node bg-brand-rust/15 border border-brand-rust/30 rounded-lg px-4 py-2 text-center">
+                <div class="text-brand-rust font-mono font-bold text-xs">RELEASING</div>
+            </div>
+            <div class="text-slate-600 text-xs self-center">→</div>
+            <div class="fsm-node bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-2 text-center">
+                <div class="text-slate-300 font-mono font-bold text-xs">IDLE</div>
+            </div>
+        </div>
+        <div class="text-sm text-slate-400 word-keep-all space-y-2">
+            <p><strong class="text-white">GRANTED 상태에서만 마이크 unmute.</strong> Floor Ping 2초 주기로 서버에 생존 신호를 보냅니다. 서버가 5초간 Ping을 못 받으면 강제 Revoke합니다.</p>
+            <p><strong class="text-white">웹과 Android가 동일한 FSM.</strong> JavaScript(app.js)와 Kotlin(FloorFsm.kt) 양쪽 모두 같은 상태 전이 로직을 구현합니다.</p>
+        </div>
+    </div>
+
+    <!-- Why WS not UDP -->
+    <div class="bg-brand-surface rounded-2xl border border-white/10 p-6">
+        <h4 class="text-white font-bold mb-3">왜 Floor Control은 WS(TCP) 경로인가</h4>
+        <div class="text-sm text-slate-400 word-keep-all space-y-2">
+            <p>MBCP(Media Burst Control Protocol) over UDP도 구현되어 있습니다 — RTCP APP(PT=204) 패킷을 서버가 파싱합니다. 하지만 <strong class="text-white">실전에서는 WS 시그널링 경로를 주력으로 사용</strong>합니다. 이유는 세 가지입니다:</p>
+            <div class="grid sm:grid-cols-3 gap-3 mt-3">
+                <div class="bg-brand-dark/50 rounded-lg p-3 border border-white/5">
+                    <div class="text-yellow-400 font-mono text-xs font-bold mb-1">① API 제약</div>
+                    <p class="text-xs word-keep-all">libwebrtc PeerConnection에서 임의 RTCP APP 패킷을 주입하는 공개 API가 없습니다. 별도 UDP 소켓을 열면 NAT 홀펀칭 유지 부담이 생깁니다.</p>
+                </div>
+                <div class="bg-brand-dark/50 rounded-lg p-3 border border-white/5">
+                    <div class="text-yellow-400 font-mono text-xs font-bold mb-1">② 충분한 속도</div>
+                    <p class="text-xs word-keep-all">발화권 결정은 10ms 이내면 충분합니다. WS 왕복(TCP)이 50ms여도 체감 차이가 없습니다. 음성 첫 패킷 도착이 병목이지, 시그널링이 병목이 아닙니다.</p>
+                </div>
+                <div class="bg-brand-dark/50 rounded-lg p-3 border border-white/5">
+                    <div class="text-yellow-400 font-mono text-xs font-bold mb-1">③ 서버 복잡도</div>
+                    <p class="text-xs word-keep-all">UDP MBCP를 주력으로 쓰면 서버 demux에 RTCP APP 분리 로직이 hot path에 추가됩니다. WS는 시그널링 핸들러에서 처리하므로 미디어 경로와 완전 분리됩니다.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 3: VIRTUAL SSRC REWRITING -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+    <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">03 — VIRTUAL SSRC REWRITING</h2>
+    <h3 class="text-2xl font-bold mb-4 word-keep-all">N명의 화자를 하나의 스트림으로 합치는 기술</h3>
+    <p class="text-slate-400 mb-8 word-keep-all">
+        PTT의 핵심 기술은 <strong class="text-white">ptt_rewriter</strong>입니다.
+        여러 화자의 RTP 패킷을 하나의 가상 SSRC로 <strong class="text-white">seq/ts 오프셋 연산</strong>을 통해 합칩니다.
+        수신 측 디코더는 "화자가 바뀌었다"는 사실을 전혀 모릅니다.
+    </p>
+
+    <div class="bg-brand-surface rounded-2xl border border-white/10 p-6 mb-8">
+        <h4 class="text-white font-bold mb-4">오프셋 기반 상대 연산</h4>
+        <div class="code-block p-4 font-mono text-sm text-slate-300 mb-4 overflow-x-auto">
+            <div class="text-slate-500">// 핵심 수식 (ptt_rewriter.rs)</div>
+            <div class="mt-2">virtual_seq = original_seq - origin_base_seq + virtual_base_seq</div>
+            <div>virtual_ts  = original_ts  - origin_base_ts  + virtual_base_ts</div>
+        </div>
+        <div class="text-sm text-slate-400 word-keep-all space-y-3">
+            <p>화자 A가 seq=1000부터 시작하고, 화자 B가 seq=5000부터 시작해도, 가상 스트림에서는 연속된 seq로 변환됩니다. 패킷이 UDP 비순차 도착해도 원본의 <strong class="text-white">상대적 순서가 보존</strong>됩니다.</p>
+            <div class="grid sm:grid-cols-2 gap-4 mt-3">
+                <div class="bg-brand-dark/50 rounded-lg p-4 border border-white/5">
+                    <div class="text-brand-cyan font-mono font-bold text-xs mb-2">Audio Rewriter</div>
+                    <div class="text-xs text-slate-400 space-y-1">
+                        <div>▸ ts_guard_gap = <span class="text-white">960</span> (Opus 48kHz, 20ms)</div>
+                        <div>▸ 키프레임 대기 없음 — 즉시 전환</div>
+                        <div>▸ clear_speaker() 시 silence flush 3발</div>
+                        <div>▸ dynamic ts_gap (경과 시간 × 48kHz)</div>
+                    </div>
+                </div>
+                <div class="bg-brand-dark/50 rounded-lg p-4 border border-white/5">
+                    <div class="text-brand-rust font-mono font-bold text-xs mb-2">Video Rewriter</div>
+                    <div class="text-xs text-slate-400 space-y-1">
+                        <div>▸ ts_guard_gap = <span class="text-white">3000</span> (VP8 90kHz, ~33ms)</div>
+                        <div>▸ <span class="text-yellow-400">키프레임 대기 모드</span> — P-frame 드롭</div>
+                        <div>▸ 새 화자의 첫 키프레임 도착 시 전환 완료</div>
+                        <div>▸ PLI burst로 키프레임 요청</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PTT Gating -->
+    <div class="bg-brand-surface rounded-2xl border border-white/10 p-6 mb-8">
+        <h4 class="text-white font-bold mb-4">PTT 게이팅 — 비발화자 패킷 차단</h4>
+        <div class="text-sm text-slate-400 word-keep-all space-y-3">
+            <p>Conference 모드에서는 모든 참가자의 패킷이 fan-out됩니다. PTT 모드에서는 <strong class="text-white">현재 발화자의 패킷만 통과</strong>시키고, 나머지는 서버에서 <strong class="text-red-400">gate 차단(drop)</strong>합니다.</p>
+            <p>이것이 텔레메트리에서 <strong class="text-white">네트워크 loss vs gate loss 구분</strong>이 중요한 이유입니다. 클라이언트의 getStats()가 보고하는 "lost 157 packets"가 실제 네트워크 손실인지, 서버 gate 차단인지를 구분해야 정확한 진단이 가능합니다.</p>
+            <div class="code-block p-3 font-mono text-[10px] text-slate-500 mt-3">
+                ingress_rtp_received = egress_rtp_relayed + <span class="text-yellow-400">ptt_rtp_gated</span> + <span class="text-red-400">ptt_video_pending_drop</span> + egress_drop
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 4: NETEQ DECEPTION -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+    <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">04 — ADAPTIVE TIMESTAMP ALIGNMENT</h2>
+    <h3 class="text-2xl font-bold mb-4 word-keep-all">NetEQ Jitter Buffer를 제어하는 기술 — Dynamic ts_gap</h3>
+    <p class="text-slate-400 mb-8 word-keep-all">
+        PTT에서 가장 어려운 문제. 화자가 바뀔 때마다 <strong class="text-white">수신 오디오 지연이 단조 증가</strong>하여
+        30초 만에 1초 이상 누적. 18시간 디버깅 세션, 3가지 시도 끝에 해결.
+    </p>
+
+    <!-- 문제 설명 -->
+    <div class="bg-red-500/5 border border-red-500/20 rounded-2xl p-6 mb-8">
+        <h4 class="text-red-400 font-mono font-bold text-sm mb-4">문제 — NetEQ Jitter Buffer 폭주</h4>
+        <div class="grid md:grid-cols-2 gap-6">
+            <div class="text-sm text-slate-400 word-keep-all space-y-3">
+                <p>libwebrtc의 NetEQ는 <code class="text-cyan-400 font-mono text-xs">arrival_time gap</code>과 <code class="text-cyan-400 font-mono text-xs">RTP timestamp gap</code>의 불일치를 <strong class="text-white">jitter</strong>로 해석합니다.</p>
+                <p>PTT에서 화자 A → 침묵 3초 → 화자 B 전환이 일어나면:</p>
+                <p>패킷은 3초 만에 도착하지만, 고정 ts_gap=960(20ms)이 적용되면 NetEQ는 "20ms 후 도착할 것으로 예상했는데 3000ms 후에 왔다 = jitter 2980ms"로 판단합니다.</p>
+                <p class="text-red-400 font-bold">→ buffer를 3초로 확장. 그리고 <code>shrink=0</code> — 한 번 키운 buffer는 절대 줄이지 않음.</p>
+            </div>
+            <div>
+                <div class="code-block p-4 font-mono text-xs text-slate-400 space-y-1">
+                    <div class="text-red-400 font-bold mb-2">고정 ts_gap = 960 (20ms)</div>
+                    <div>expected = 960/48000 = <span class="text-white">20ms</span></div>
+                    <div>actual (idle 3초) = <span class="text-white">3000ms</span></div>
+                    <div>jitter = 3000 - 20 = <span class="text-red-400 font-bold">2980ms</span></div>
+                    <div class="text-red-400 mt-2">→ buffer 3초로 확장!</div>
+                    <div class="text-red-400">→ shrink=0: 절대 안 줄어듦</div>
+                    <div class="text-red-400">→ 전환 반복 시 무한 누적</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 해결 -->
+    <div class="bg-green-500/5 border border-green-500/20 rounded-2xl p-6 mb-8">
+        <h4 class="text-green-400 font-mono font-bold text-sm mb-4">해결 — Dynamic ts_guard_gap</h4>
+        <div class="grid md:grid-cols-2 gap-6">
+            <div class="text-sm text-slate-400 word-keep-all space-y-3">
+                <p>핵심 아이디어: <strong class="text-white">"ts gap을 실제 경과 시간에 맞추면?"</strong></p>
+                <p>idle 구간이 3초였으면, ts gap도 3000ms × 48kHz = 144,000으로 설정합니다. 그러면 NetEQ가 계산하는 jitter는:</p>
+                <p class="text-green-400 font-bold">expected = 144000/48000 = 3000ms<br>actual = 3000ms<br>jitter = 0ms → buffer 안 키움!</p>
+                <p>이것은 RFC 3550 위반이 아닙니다. RTP timestamp는 샘플 카운터이지 벽시계가 아닙니다. "오래 침묵했다"를 의미하는 큰 ts gap은 완전히 합법적입니다.</p>
+            </div>
+            <div>
+                <div class="code-block p-4 font-mono text-xs text-slate-400 space-y-1">
+                    <div class="text-green-400 font-bold mb-2">dynamic ts_gap (경과시간 × 48kHz)</div>
+                    <div>ts_gap = 3000ms × 48 = <span class="text-white">144,000</span></div>
+                    <div>expected = 144000/48000 = <span class="text-white">3000ms</span></div>
+                    <div>actual = <span class="text-white">3000ms</span></div>
+                    <div>jitter = 3000 - 3000 = <span class="text-green-400 font-bold">0ms</span></div>
+                    <div class="text-green-400 mt-2">→ buffer 안 키움!</div>
+                    <div class="text-green-400">→ 매 전환마다 깨끗한 시작</div>
+                </div>
+                <div class="mt-4 bg-brand-dark/50 rounded-lg p-3 text-xs font-mono text-slate-500">
+                    <div class="text-slate-400 font-bold mb-1">실측 서버 로그</div>
+                    <div>[PTT:REWRITE] idle=<span class="text-brand-cyan">9147ms</span> → ts_gap=<span class="text-white">439056</span></div>
+                    <div>[PTT:REWRITE] idle=<span class="text-brand-cyan">2575ms</span> → ts_gap=<span class="text-white">123600</span></div>
+                    <div>[PTT:REWRITE] idle=<span class="text-brand-cyan">31881ms</span> → ts_gap=<span class="text-white">1530288</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 결과 비교 -->
+    <div class="bg-brand-surface rounded-2xl border border-white/10 p-6 mb-6">
+        <h4 class="text-white font-bold mb-4">실측 비교 — jbDelay 최대값</h4>
+        <div class="space-y-3" id="jbDelayBars"></div>
+        <div class="mt-4 text-xs text-slate-500 word-keep-all">
+            <strong class="text-brand-cyan">ITU-T G.114 기준:</strong> 150ms 이하 = 인지 불가, 150~400ms = 허용, 400ms 이상 = 대화 지장.
+            Dynamic ts_gap의 97ms는 <span class="text-green-400">정상 범위 내</span>.
+        </div>
+    </div>
+
+    <!-- Silence Flush -->
+    <div class="bg-brand-surface rounded-2xl border border-white/10 p-6">
+        <h4 class="text-white font-bold mb-3">보조 메커니즘 — Silence Flush 3발</h4>
+        <div class="text-sm text-slate-400 word-keep-all space-y-2">
+            <p>화자 해제(clear_speaker) 시 Opus DTX silence 프레임 3발(60ms)을 fan-out합니다. 이것은 두 가지 역할을 합니다:</p>
+            <div class="grid sm:grid-cols-2 gap-3 mt-2">
+                <div class="bg-brand-dark/50 rounded-lg p-3 border border-white/5">
+                    <div class="text-green-400 font-mono text-xs font-bold mb-1">① NACK list full 방지</div>
+                    <p class="text-xs">silence가 last_virtual_ts를 올려놓아 후속 dynamic ts_gap 계산의 기준점 역할.</p>
+                </div>
+                <div class="bg-brand-dark/50 rounded-lg p-3 border border-white/5">
+                    <div class="text-green-400 font-mono text-xs font-bold mb-1">② NetEQ에게 "스트림 끝" 신호</div>
+                    <p class="text-xs">silence 프레임이 도착하면 NetEQ가 idle 모드로 전환할 준비를 함.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 5: VIDEO IN PTT -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+    <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">05 — VIDEO IN PTT MODE</h2>
+    <h3 class="text-2xl font-bold mb-4 word-keep-all">PTT에서 비디오가 동작하는 방식</h3>
+    <p class="text-slate-400 mb-8 word-keep-all">
+        PTT는 음성만? 아닙니다. 0xLENS의 PTT는 <strong class="text-white">발화자의 비디오도 함께 전환</strong>합니다.
+        오디오와 동일한 가상 SSRC 리라이팅이 비디오에도 적용되지만, <strong class="text-white">키프레임 대기</strong>라는 추가 메커니즘이 있습니다.
+    </p>
+
+    <div class="bg-brand-surface rounded-2xl border border-white/10 p-6 mb-6">
+        <h4 class="text-white font-bold mb-4">키프레임 대기 (Pending Keyframe)</h4>
+        <div class="text-sm text-slate-400 word-keep-all space-y-3">
+            <p>비디오 디코더는 <strong class="text-white">키프레임(I-frame)</strong>이 없으면 P-frame을 디코딩할 수 없습니다. 화자가 바뀌면 새 화자의 첫 키프레임이 도착할 때까지 이전 화자의 마지막 프레임이 표시됩니다.</p>
+            <div class="grid sm:grid-cols-3 gap-3 mt-3">
+                <div class="bg-brand-dark/50 rounded-lg p-3 border border-white/5 text-xs">
+                    <div class="text-brand-rust font-mono font-bold mb-1">① switch_speaker()</div>
+                    <p>video rewriter: pending_keyframe = true. 이후 P-frame은 모두 drop.</p>
+                </div>
+                <div class="bg-brand-dark/50 rounded-lg p-3 border border-white/5 text-xs">
+                    <div class="text-brand-cyan font-mono font-bold mb-1">② PLI burst</div>
+                    <p>서버가 새 화자에게 PLI(Picture Loss Indication)를 발사하여 키프레임 생성을 요청.</p>
+                </div>
+                <div class="bg-brand-dark/50 rounded-lg p-3 border border-white/5 text-xs">
+                    <div class="text-green-400 font-mono font-bold mb-1">③ 키프레임 도착</div>
+                    <p>pending_keyframe = false. 이 시점부터 가상 SSRC로 리라이팅된 비디오 패킷이 fan-out.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-brand-surface rounded-2xl border border-white/10 p-6">
+        <h4 class="text-white font-bold mb-3">CAMERA_READY — 클라이언트 주도 준비 프로토콜</h4>
+        <div class="text-sm text-slate-400 word-keep-all space-y-2">
+            <p>모바일에서 카메라 콜드 스타트(AE/AWB 수렴)에 300~500ms가 걸립니다. 서버가 임의 타이밍에 PLI를 보내면 수렴 전의 어두운 프레임이 키프레임이 될 수 있습니다.</p>
+            <p>0xLENS는 <strong class="text-white">클라이언트가 "카메라 준비 완료"를 선언(CAMERA_READY, op=18)</strong>한 후에 서버가 PLI를 발사하는 주도적 프로토콜을 사용합니다. 서버의 타이밍 추측이 불필요합니다.</p>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 6: FULL PICTURE -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="max-w-5xl mx-auto px-4 sm:px-6 pb-20">
+    <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">06 — FULL PICTURE</h2>
+    <h3 class="text-2xl font-bold mb-8 word-keep-all">PTT 전체 시퀀스</h3>
+
+    <div class="bg-brand-surface rounded-2xl border border-white/10 p-6 overflow-x-auto">
+        <div class="min-w-[600px] font-mono text-xs text-slate-400 space-y-1">
+            <div class="text-slate-500 mb-3">// 화자 A → 화자 B 전환 전체 시퀀스</div>
+            <div><span class="text-brand-cyan">A</span>  TALK 버튼 누름 → WS FLOOR_REQUEST(op=40)</div>
+            <div><span class="text-brand-rust">SFU</span> FloorController: IDLE → TAKEN(speaker=A)</div>
+            <div><span class="text-brand-rust">SFU</span> → 전체 WS FLOOR_TAKEN(op=141, speaker=A)</div>
+            <div><span class="text-brand-rust">SFU</span> ptt_rewriter.switch_speaker(A) — 오프셋 갱신</div>
+            <div><span class="text-brand-cyan">A</span>  mic unmute → RTP 전송 시작</div>
+            <div><span class="text-brand-rust">SFU</span> A의 RTP → rewrite(virtual SSRC) → fan-out</div>
+            <div class="text-slate-600">  ... (발화 중, Floor Ping 2초 주기) ...</div>
+            <div><span class="text-brand-cyan">A</span>  TALK 버튼 뗌 → WS FLOOR_RELEASE(op=41)</div>
+            <div><span class="text-brand-rust">SFU</span> FloorController: TAKEN → IDLE</div>
+            <div><span class="text-brand-rust">SFU</span> ptt_rewriter.clear_speaker() → silence flush 3발 + cleared_at 기록</div>
+            <div><span class="text-brand-rust">SFU</span> → 전체 WS FLOOR_IDLE(op=142)</div>
+            <div class="text-slate-600">  ... (침묵 구간, 3초 경과) ...</div>
+            <div><span class="text-green-400">B</span>  TALK 버튼 누름 → WS FLOOR_REQUEST(op=40)</div>
+            <div><span class="text-brand-rust">SFU</span> FloorController: IDLE → TAKEN(speaker=B)</div>
+            <div><span class="text-brand-rust">SFU</span> ptt_rewriter.switch_speaker(B)</div>
+            <div><span class="text-brand-rust">SFU</span>   audio: <span class="text-brand-cyan">dynamic ts_gap = 3초 × 48000 = 144,000</span></div>
+            <div><span class="text-brand-rust">SFU</span>   video: pending_keyframe=true, PLI burst → B</div>
+            <div><span class="text-green-400">B</span>  mic unmute + camera → RTP 전송 시작</div>
+            <div><span class="text-brand-rust">SFU</span> B의 audio RTP → rewrite(ts_gap=144000) → fan-out — <span class="text-green-400">jitter=0!</span></div>
+            <div><span class="text-green-400">B</span>  keyframe 도착 → pending=false → video fan-out 시작</div>
+        </div>
+    </div>
+</section>
+
+<!-- Footer -->
+<footer class="max-w-5xl mx-auto px-6 py-8 border-t border-slate-800 text-center text-slate-600 text-xs font-mono">
+    <span class="text-brand-rust">0x</span><span class="text-white">LENS</span> — PTT Design Philosophy &nbsp;|&nbsp; author: kodeholic (powered by Claude)
+</footer>
+
+<script>
+// author: kodeholic (powered by Claude)
+
+/* ═══════ jbDelay Bars ═══════ */
+const JB_DATA = [
+    { label: '시도 1 — C++ Interceptor', value: 1055, color: 'bg-red-500', textColor: 'text-red-400' },
+    { label: '시도 2 — Silence Flush only', value: 1180, color: 'bg-yellow-500', textColor: 'text-yellow-400' },
+    { label: '최종 — Dynamic ts_gap', value: 97, color: 'bg-green-500', textColor: 'text-green-400' },
+];
+const maxJb = 1200;
+
+document.getElementById('jbDelayBars').innerHTML = JB_DATA.map(d => {
+    const w = (d.value / maxJb * 100).toFixed(1);
+    return `<div class="flex items-center gap-3">
+        <div class="w-52 sm:w-60 text-right text-xs font-mono text-gray-500 shrink-0">${d.label}</div>
+        <div class="flex-1 relative h-8 bg-white/5 rounded overflow-hidden">
+            <div class="absolute inset-y-0 left-0 ${d.color}/60 rounded" style="width:${w}%"></div>
+            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-mono font-bold ${d.textColor}">${d.value}ms</span>
+        </div>
+    </div>`;
+}).join('');
+</script>
+
+</body>
+</html>

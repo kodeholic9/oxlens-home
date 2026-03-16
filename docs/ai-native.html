@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="ko">
+<!--
+  @author: kodeholic (powered by Claude)
+  @description: 0xLENS AI-Native SFU — AI 주도형 개발/운영 사이클 & 관측성 비교
+  @version: v1.2.0
+-->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>0xLENS — AI-Native SFU</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Pretendard', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            rust: '#E45B25',
+                            cyan: '#00F0FF',
+                            dark: '#0B0F19',
+                            surface: '#151B2B'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #0B0F19; color: #E2E8F0; }
+        .bg-grid {
+            background-size: 40px 40px;
+            background-image: linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+                              linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
+        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0B0F19; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        .word-keep-all { word-break: keep-all; }
+
+
+        .cmp-yes { color: #00F0FF; }
+        .cmp-no { color: #64748B; }
+        .cmp-partial { color: #FBBF24; }
+        .cmp-oxlens { color: #E45B25; font-weight: 700; }
+
+        .tl-line { position: absolute; left: 19px; top: 40px; bottom: 0; width: 2px; background: linear-gradient(to bottom, #E45B25, #00F0FF); }
+
+        .role-eng { border-left: 3px solid #FBBF24; }
+        .role-ai { border-left: 3px solid #00F0FF; }
+        .role-both { border-left: 3px solid #E45B25; }
+
+        .tele-sample {
+            background: #0D1117;
+            border: 1px solid #21262D;
+            border-radius: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            line-height: 1.7;
+            overflow-x: auto;
+            padding: 20px;
+            color: #8B949E;
+            white-space: pre;
+        }
+        .tele-sample .hl-key { color: #79C0FF; }
+        .tele-sample .hl-val { color: #A5D6FF; }
+        .tele-sample .hl-warn { color: #F0883E; }
+        .tele-sample .hl-crit { color: #F85149; }
+        .tele-sample .hl-ok { color: #3FB950; }
+        .tele-sample .hl-section { color: #D2A8FF; font-weight: bold; }
+        .tele-sample .hl-comment { color: #484F58; font-style: italic; }
+    </style>
+</head>
+<body class="bg-grid min-h-screen font-sans antialiased selection:bg-brand-rust selection:text-white">
+
+<!-- Header (telemetry.html 패턴 동일) -->
+<header class="sticky top-0 z-50 bg-brand-dark/90 backdrop-blur-md border-b border-white/10">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+        <a href="../index.html" class="flex items-center gap-2">
+            <span class="font-mono text-xl font-extrabold tracking-tight">
+                <span class="text-brand-rust">0x</span><span class="text-white">LENS</span>
+            </span>
+            <span class="text-gray-600 text-xs font-mono">AI-Native</span>
+        </a>
+        <nav class="flex items-center gap-4 text-xs font-mono text-gray-500">
+            <a href="../index.html" class="hover:text-white transition">&larr; Home</a>
+            <a href="./telemetry.html" class="hover:text-white transition">Telemetry</a>
+            <a href="./benchmark.html" class="hover:text-white transition">Benchmark</a>
+            <a href="./rx-tx-pipeline.html" class="hover:text-white transition">Pipeline</a>
+        </nav>
+    </div>
+</header>
+
+<!-- Hero -->
+<section class="max-w-5xl mx-auto px-6 pt-12 pb-10">
+    <h1 class="text-4xl md:text-5xl font-extrabold leading-tight mb-6 word-keep-all">
+        AI가 <span class="text-brand-cyan">설계</span>하고,
+        <span class="text-brand-rust">진단</span>하고,
+        <span class="text-brand-cyan">수정</span>하는 SFU
+    </h1>
+    <p class="text-lg text-slate-400 max-w-3xl word-keep-all leading-relaxed">
+        <span class="text-brand-rust">0x</span><span class="text-white">LENS</span>는 AI가 보조하는 것이 아니라,
+        <strong class="text-slate-200">엔지니어가 방향을 잡고 AI가 실행을 주도</strong>하는 SFU 플랫폼입니다.
+        텔레메트리 데이터는 사람의 눈이 아닌
+        <strong class="text-slate-200">AI의 인과 추론</strong>을 위해 설계되었으며,
+        장애 발견부터 코드 수정, 배포, 검증까지 하나의 협업 세션에서 완결됩니다.
+    </p>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- SECTION 0: 출발점 — 오염된 정보와 판단의 한계 -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<section class="max-w-5xl mx-auto px-6 py-12">
+    <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">00 — THE PROBLEM</h2>
+    <h3 class="text-2xl font-bold mb-6 word-keep-all">출발점: 오염된 정보가 만드는 잘못된 판단</h3>
+
+    <div class="bg-brand-surface rounded-2xl p-6 border border-red-900/30 mb-8">
+        <p class="text-slate-300 word-keep-all leading-relaxed mb-6">
+            WebRTC 미디어 시스템에서 장애의 원인은 <strong class="text-red-400">겹겹이 숨겨져</strong> 있습니다.
+            클라이언트 getStats()가 보고하는 "packet loss 54%"라는 숫자 하나를 보고 판단하면 어떤 일이 벌어질까요?
+        </p>
+        <div class="grid md:grid-cols-2 gap-6" id="problemCards"></div>
+    </div>
+
+    <div class="bg-brand-surface rounded-2xl p-6 border border-brand-cyan/20">
+        <h4 class="font-bold text-brand-cyan mb-4"><span class="text-brand-rust">0x</span><span class="text-brand-cyan">LENS</span>의 접근: AI에게 정확한 데이터를 주자</h4>
+        <p class="text-slate-400 word-keep-all leading-relaxed">
+            이 프로젝트는 <strong class="text-slate-200">"AI에게 그릇된 정보를 주면 AI도 바보가 된다"</strong>는 문제의식에서 시작했습니다.
+            경험 많은 엔지니어의 직관과 판단력은 <strong class="text-slate-200">방향 설정과 최종 의사결정</strong>에 집중하고,
+            수십 개 메트릭의 교차 분석과 인과관계 추론은 <strong class="text-slate-200">정확하게 구조화된 데이터를 가진 AI</strong>에게 맡기는 것.
+            이것이 <span class="text-brand-rust">0x</span><span class="text-white">LENS</span>가 텔레메트리를 AI의 추론을 위해 설계하는 이유입니다.
+        </p>
+    </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- SECTION 1: 엔지니어-AI 협업 사이클 -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<section class="max-w-5xl mx-auto px-6 py-12">
+    <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">01 — ENGINEER × AI COLLABORATION</h2>
+    <h3 class="text-2xl font-bold mb-4 word-keep-all">엔지니어 × AI 협업 사이클</h3>
+    <p class="text-slate-400 mb-8 word-keep-all">
+        AI가 모든 것을 혼자 하는 것이 아닙니다.
+        <strong class="text-slate-200">엔지니어가 문제를 정의하고, 테스트를 설계하고, 최종 판단</strong>을 내립니다.
+        <strong class="text-slate-200">AI가 데이터를 분석하고, 원인을 추론하고, 코드를 작성</strong>합니다.
+        각자가 잘하는 일에 집중합니다.
+    </p>
+
+    <div class="flex flex-wrap gap-4 mb-8 text-xs">
+        <span class="flex items-center gap-2"><span class="w-3 h-3 rounded-sm bg-yellow-500/80"></span> 엔지니어 주도</span>
+        <span class="flex items-center gap-2"><span class="w-3 h-3 rounded-sm bg-brand-cyan/80"></span> AI 주도</span>
+        <span class="flex items-center gap-2"><span class="w-3 h-3 rounded-sm bg-brand-rust/80"></span> 공동 협의</span>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-8 mb-12">
+        <!-- 기존 방식 -->
+        <div class="bg-brand-surface rounded-2xl p-6 border border-slate-700/50">
+            <span class="text-slate-500 font-mono text-xs">TRADITIONAL</span>
+            <h4 class="text-lg font-bold text-slate-400 mt-2 mb-4">기존 SFU 서비스</h4>
+            <div class="space-y-3 text-sm text-slate-500">
+                <div class="flex gap-3"><span class="text-slate-600">①</span><span>장애 발생 → 사용자 불만 접수</span></div>
+                <div class="flex gap-3"><span class="text-slate-600">②</span><span>운영자가 대시보드를 열고 그래프를 봄</span></div>
+                <div class="flex gap-3"><span class="text-slate-600">③</span><span>직감으로 원인 추측 <em class="text-red-400/60">(오진 위험)</em></span></div>
+                <div class="flex gap-3"><span class="text-slate-600">④</span><span>개발자에게 이슈 전달 <em class="text-red-400/60">(전달 과정에서 정보 손실)</em></span></div>
+                <div class="flex gap-3"><span class="text-slate-600">⑤</span><span>개발자가 로그 분석 → 원인 파악</span></div>
+                <div class="flex gap-3"><span class="text-slate-600">⑥</span><span>코드 수정 → 코드 리뷰 → 배포</span></div>
+                <div class="mt-4 pt-4 border-t border-slate-700 text-slate-600 font-mono text-xs">⏱ 수 시간 ~ 수 일</div>
+            </div>
+        </div>
+
+        <!-- OxLens 방식 -->
+        <div class="bg-brand-surface rounded-2xl p-6 border border-brand-rust/30 ring-1 ring-brand-rust/10">
+            <span class="font-mono text-xs"><span class="text-brand-rust">0x</span><span class="text-white">LENS</span> <span class="text-brand-rust">AI-NATIVE</span></span>
+            <h4 class="text-lg font-bold text-white mt-2 mb-4">엔지니어 × AI 협업 사이클</h4>
+            <div class="space-y-3 text-sm" id="cycleSteps"></div>
+            <div class="mt-4 pt-4 border-t border-brand-rust/20 text-brand-cyan font-mono text-xs">⏱ 단일 세션 (30분 ~ 1시간)</div>
+        </div>
+    </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- SECTION 2: 디버깅 사례 + 텔레메트리 샘플 -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<section class="max-w-5xl mx-auto px-6 py-12">
+    <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">02 — DEBUGGING CASE STUDY</h2>
+    <h3 class="text-2xl font-bold mb-4 word-keep-all">디버깅 사례: RTX Amplification Storm</h3>
+    <p class="text-slate-400 mb-8 word-keep-all">
+        2026년 3월 15일, 라즈베리파이 개발 서버에서 발생한 장애입니다.
+        PC 2대 + LTE 안드로이드 1대, 총 3명이 Conference 방에 참여한 상태.
+        <strong class="text-slate-200">엔지니어가 테스트를 설계하고 텔레메트리 스냅샷을 AI에게 전달</strong>,
+        AI가 분석 → 설계 → 코딩,
+        <strong class="text-slate-200">엔지니어가 빌드/배포/재현 테스트</strong>로 검증을 완료한 전체 과정입니다.
+    </p>
+
+    <!-- 텔레메트리 샘플 -->
+    <div class="mb-10">
+        <h4 class="font-mono text-sm text-slate-500 mb-3">AI가 분석한 실제 텔레메트리 스냅샷 (축약)</h4>
+        <div class="tele-sample" id="teleSample"></div>
+    </div>
+
+    <!-- 타임라인 -->
+    <h4 class="font-mono text-sm text-slate-500 mb-6">장애 발견 → 해결 타임라인</h4>
+    <div class="relative pl-10" id="caseTimeline"></div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- SECTION 3: 관측성 비교 -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<section class="max-w-5xl mx-auto px-6 py-12">
+    <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">03 — OBSERVABILITY COMPARISON</h2>
+    <h3 class="text-2xl font-bold mb-4 word-keep-all">관측성 비교: 시장 vs <span class="text-brand-rust">0x</span>LENS</h3>
+    <p class="text-slate-400 mb-8 word-keep-all">
+        기존 SFU 서비스는 "세션이 좋았나 나빴나"를 보여줍니다.<br>
+        <span class="text-brand-rust">0x</span><span class="text-white">LENS</span>는 <strong class="text-slate-200">"왜 나빴는지"를 경로별로 분리하여 AI가 인과관계를 추론</strong>할 수 있는 데이터를 제공합니다.
+    </p>
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm border-collapse" id="cmpTable"></table>
+    </div>
+    <div class="mt-6 flex flex-wrap gap-4 text-xs text-slate-500">
+        <span class="flex items-center gap-1"><span class="cmp-yes">●</span> 지원</span>
+        <span class="flex items-center gap-1"><span class="cmp-partial">●</span> 부분 지원</span>
+        <span class="flex items-center gap-1"><span class="cmp-no">●</span> 미지원</span>
+        <span class="flex items-center gap-1"><span class="cmp-oxlens">●</span> <span class="text-brand-rust">0x</span>LENS 차별화</span>
+    </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- SECTION 4: WHY AI-NATIVE -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<section class="max-w-5xl mx-auto px-6 py-12 pb-20">
+    <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">04 — WHY AI-NATIVE</h2>
+    <h3 class="text-2xl font-bold mb-8 word-keep-all">왜 텔레메트리가 AI를 위해 설계되어야 하는가</h3>
+    <div class="grid md:grid-cols-3 gap-6" id="whyCards"></div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- FOOTER -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<footer class="max-w-5xl mx-auto px-6 py-8 border-t border-slate-800 text-center text-slate-600 text-xs font-mono">
+    <span class="text-brand-rust">0x</span><span class="text-white">LENS</span> — AI-Native SFU Platform &nbsp;|&nbsp; author: kodeholic (powered by Claude)
+</footer>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- DATA + RENDER -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<script>
+/* ══════════════════════════════════════════════════════════════
+   SECTION 0: 오염된 정보와 판단의 한계
+   ══════════════════════════════════════════════════════════════ */
+const PROBLEMS = [
+    {
+        icon: '🔴',
+        title: '정보의 오염',
+        problems: [
+            'getStats()의 "loss 54%"가 실제 네트워크 로스인지, 서버 gate 차단인지, 브라우저 탭 hidden으로 인한 측정 왜곡인지 구분 불가',
+            '"A→SFU loss 10%"라는 라벨이 실제로는 SFU→B(subscriber) 경로의 로스를 잘못 표시할 수 있음',
+            'RTX 12,027건이 실제 전송 수인지, budget에 의해 차단된 수까지 합산된 것인지 메트릭 위치에 따라 달라짐',
+        ],
+    },
+    {
+        icon: '🔴',
+        title: '사람이 판단할 때의 한계',
+        problems: [
+            '3초 윈도우 안의 수십 개 메트릭을 교차 분석해야 하지만, 사람은 동시에 2~3개만 비교 가능',
+            '"네트워크 문제인 것 같다"는 직감이 실제로는 인코더 CPU 한계, 또는 RTX 증폭이 원인인 경우',
+            '4명 × 6개 경로 × 10개 메트릭 = 240개 데이터 포인트를 수 초 안에 교차 분석하는 것은 사람에게 불가능',
+            '동일 publisher 스트림이 subscriber마다 다른 loss를 보일 때, 직관으로는 "이상하다"에서 멈추지만 구조화된 데이터가 있으면 AI가 egress 경로 분리로 즉시 원인 특정',
+        ],
+    },
+];
+
+document.getElementById('problemCards').innerHTML = PROBLEMS.map(p =>
+    `<div class="space-y-3">
+        <h4 class="font-bold text-red-400 flex items-center gap-2">${p.icon} ${p.title}</h4>
+        ${p.problems.map(prob =>
+            `<div class="flex gap-2 text-sm text-slate-400 word-keep-all">
+                <span class="text-red-400/50 shrink-0">▸</span>
+                <span>${prob}</span>
+            </div>`
+        ).join('')}
+    </div>`
+).join('');
+
+/* ══════════════════════════════════════════════════════════════
+   SECTION 1: 엔지니어 × AI 협업 사이클
+   ══════════════════════════════════════════════════════════════ */
+const CYCLE_STEPS = [
+    { role: 'eng',  icon: '🎯', label: '엔지니어: 문제 정의 + 테스트 설계',
+      desc: '"lost 버스트와 fps 변동을 잡아야 한다. PC 2대 + LTE 안드로이드로 테스트한다."' },
+    { role: 'eng',  icon: '📊', label: '엔지니어: 테스트 수행 → 스냅샷 전달',
+      desc: '직접 테스트를 돌리고 어드민 페이지에서 텔레메트리 스냅샷을 추출하여 AI에게 전달' },
+    { role: 'ai',   icon: '🔍', label: 'AI: 스냅샷 분석 → 인과관계 추론',
+      desc: '240개 데이터 포인트 교차 분석 — "RTX 1,787건 → egress overflow → 연쇄 장애" 특정' },
+    { role: 'both', icon: '💬', label: '공동 협의: 해결 방향 논의',
+      desc: '엔지니어가 설계를 검토하고 방향을 승인. "코딩해줘"' },
+    { role: 'ai',   icon: '💻', label: 'AI: 상세 설계 + 코딩',
+      desc: 'Per-subscriber RTX budget 설계 + 5개 파일 수정 + git commit 메시지 생성' },
+    { role: 'eng',  icon: '🔨', label: '엔지니어: 빌드 → 배포 → 재현 테스트',
+      desc: 'cargo build 확인 → RPi 배포(deploy-oxlens.sh) → 동일 조건 재현 테스트 → 결과 스냅샷 전달' },
+    { role: 'ai',   icon: '✅', label: 'AI: 검증 데이터 분석 → 해결 확인',
+      desc: '배포 후 스냅샷 분석: egress_drop=0, 정상 참가자 freeze 없음 확인' },
+    { role: 'both', icon: '📋', label: '공동: 후속 과제 도출',
+      desc: '엔지니어가 관찰한 subscribe 트랙 누락 이슈 → TRACKS_ACK/RESYNC 프로토콜 설계 협의' },
+];
+
+const ROLE_CLASS = { eng: 'role-eng', ai: 'role-ai', both: 'role-both' };
+
+document.getElementById('cycleSteps').innerHTML = CYCLE_STEPS.map(s =>
+    `<div class="flex gap-3 items-start pl-3 py-1 ${ROLE_CLASS[s.role]} rounded-r">
+        <span class="text-base shrink-0">${s.icon}</span>
+        <div>
+            <span class="text-white font-semibold text-xs">${s.label}</span>
+            <div class="text-slate-400 text-xs mt-0.5">${s.desc}</div>
+        </div>
+    </div>`
+).join('');
+
+/* ══════════════════════════════════════════════════════════════
+   SECTION 2: 텔레메트리 샘플 + 타임라인
+   ══════════════════════════════════════════════════════════════ */
+const TELE_SAMPLE = [
+    '<span class="hl-section">--- PUBLISH (3초 윈도우) ---</span>',
+    '',
+    '<span class="hl-comment">// U306: LTE 안드로이드 — Exynos HW 인코더, enc_time 14.9ms → 31fps 유지</span>',
+    '[<span class="hl-key">U306:video</span>] pkts_delta=<span class="hl-val">501</span>  bitrate=<span class="hl-val">1434kbps</span>  target=1500000  <span class="hl-ok">fps=31</span>',
+    '[<span class="hl-key">U306:video:enc</span>] enc_time=<span class="hl-ok">14.9ms/f</span>  qld=[bw=0s cpu=0s]',
+    '',
+    '<span class="hl-comment">// U821: PC — libvpx SW 인코더, enc_time 18.6ms → 15fps로 저하</span>',
+    '[<span class="hl-key">U821:video</span>] pkts_delta=<span class="hl-val">494</span>  bitrate=<span class="hl-val">1479kbps</span>  target=1500000  <span class="hl-warn">fps=15</span>',
+    '[<span class="hl-key">U821:video:enc</span>] enc_time=<span class="hl-warn">18.6ms/f</span>  qld=[bw=0s cpu=0s]',
+    '',
+    '',
+    '<span class="hl-section">--- SUBSCRIBE (3초 윈도우) ---</span>',
+    '',
+    '<span class="hl-comment">// U306(LTE)이 받는 스트림 — 다운링크 패킷 로스 심각</span>',
+    '[<span class="hl-key">U306←U821:video</span>] recv=<span class="hl-warn">477</span>  lost=<span class="hl-crit">144</span>  nack=<span class="hl-warn">182</span>  freeze=4',
+    '[<span class="hl-key">U306←U461:video</span>] recv=<span class="hl-warn">490</span>  lost=<span class="hl-crit">157</span>  nack=<span class="hl-warn">186</span>  freeze=3',
+    '',
+    '<span class="hl-comment">// U821(PC)↔U461(PC) — 네트워크 정상인데 왜 freeze가 발생하나?</span>',
+    '[<span class="hl-key">U821←U461:video</span>] recv=<span class="hl-val">484</span>  lost=<span class="hl-ok">0</span>  nack=<span class="hl-warn">196</span>  freeze=0',
+    '',
+    '',
+    '<span class="hl-section">--- SFU 서버 (3초 윈도우) ---</span>',
+    '',
+    '<span class="hl-comment">// 핵심 증거: NACK 58건이 RTX 1,787건으로 증폭 + egress 큐 overflow</span>',
+    '[server] nack_recv=<span class="hl-warn">58</span>  rtx_sent=<span class="hl-crit">1,787</span>  rtx_miss=55  egress_drop=<span class="hl-crit">198</span>',
+    '',
+    '',
+    '<span class="hl-section">--- LOSS CROSS-REFERENCE (경로별 로스 분리) ---</span>',
+    '',
+    '<span class="hl-comment">// Publish→SFU 구간과 SFU→Subscribe 구간을 분리하여 표시</span>',
+    '[<span class="hl-key">U821→U306</span>]  A→SFU=<span class="hl-ok">0.0%</span>  SFU→B=<span class="hl-crit">54.2%</span>  <span class="hl-comment">← LTE 다운링크 로스</span>',
+    '[<span class="hl-key">U821→U461</span>]  A→SFU=<span class="hl-ok">0.0%</span>  SFU→B=<span class="hl-ok">0.0%</span>   <span class="hl-comment">← 정상</span>',
+    '',
+    '',
+    '<span class="hl-section">--- UNIFIED TIMELINE (시간순 이벤트) ---</span>',
+    '',
+    '<span class="hl-comment">// 장애의 연쇄 전파 과정이 시간순으로 보인다</span>',
+    '[<span class="hl-warn">07:39:02</span>] U306  <span class="hl-crit">loss_burst</span> sub:video ×157',
+    '[<span class="hl-warn">07:39:05</span>] U306  video_freeze ×1',
+    '[<span class="hl-warn">07:39:05</span>] SFU   rtx=<span class="hl-crit">4,962</span>  drop=<span class="hl-crit">541</span>     <span class="hl-comment">← RTX 폭풍 + 큐 overflow</span>',
+    '[<span class="hl-warn">07:39:07</span>] <span class="hl-crit">U821</span>  loss_burst sub:audio ×44     <span class="hl-comment">← 정상 참가자에게 피해 전파!</span>',
+    '[<span class="hl-warn">07:39:08</span>] <span class="hl-crit">U461</span>  loss_burst sub:audio ×44     <span class="hl-comment">← 정상 참가자에게 피해 전파!</span>',
+].join('\n');
+
+document.getElementById('teleSample').innerHTML = TELE_SAMPLE;
+
+/* ── Case Timeline ── */
+const CASE_EVENTS = [
+    {
+        time: '07:39',
+        who: '🎯 엔지니어',
+        title: '테스트 수행 + 스냅샷 전달',
+        detail: 'PC 2대 + LTE 안드로이드 1대로 Conference 테스트를 직접 수행. 어드민 페이지에서 텔레메트리 스냅샷을 추출하여 AI에게 전달.',
+        color: 'text-yellow-400',
+    },
+    {
+        time: '07:39',
+        who: '🤖 AI',
+        title: '스냅샷 분석 → 인과관계 특정',
+        detail: '240개 데이터 포인트를 교차 분석. "U306(LTE) NACK 58건 → RTX 1,787건(1:30 증폭) → egress 큐 overflow 198건 → U821/U461 연쇄 freeze" 인과 경로 특정.',
+        color: 'text-brand-cyan',
+    },
+    {
+        time: '07:45',
+        who: '🤝 공동 협의',
+        title: '해결책 설계 → 엔지니어 승인',
+        detail: 'AI가 Per-subscriber RTX budget(200/3초) 제안. 엔지니어가 설계를 검토하고 "코딩해줘"로 실행 승인. AI가 config.rs, participant.rs, ingress.rs, metrics/mod.rs, transport/udp/mod.rs — 5개 파일 수정.',
+        color: 'text-brand-rust',
+    },
+    {
+        time: '07:50',
+        who: '🎯 엔지니어',
+        title: '빌드 확인 + RPi 배포',
+        detail: 'cargo build 성공 확인 → git commit → RPi에 deploy-oxlens.sh patch 실행. cargo build --release 1분 39초 소요.',
+        color: 'text-yellow-400',
+    },
+    {
+        time: '07:55',
+        who: '🎯 엔지니어',
+        title: '동일 조건 재현 테스트',
+        detail: '같은 3명 구성(PC 2 + LTE Android)으로 재현 테스트 수행. 새 텔레메트리 스냅샷을 AI에게 전달하여 검증 요청.',
+        color: 'text-yellow-400',
+    },
+    {
+        time: '07:55',
+        who: '🤖 AI',
+        title: '검증 완료',
+        detail: '배포 후 스냅샷 분석: RTX 폭풍 구간에서 budget이 200에서 차단됨 → egress_drop=0 → 정상 참가자(U821, U461)에 freeze 전파 없음. 문제 해결 확인.',
+        color: 'text-green-400',
+    },
+];
+
+document.getElementById('caseTimeline').innerHTML =
+    '<div class="tl-line"></div>' +
+    CASE_EVENTS.map(ev =>
+        `<div class="relative mb-8 last:mb-0">
+            <div class="absolute left-[-31px] top-1 w-[10px] h-[10px] rounded-full bg-brand-rust ring-4 ring-brand-dark"></div>
+            <div class="bg-brand-surface rounded-xl p-5 border border-slate-700/50">
+                <div class="flex items-center gap-3 mb-2">
+                    <span class="font-mono text-xs text-slate-500">${ev.time}</span>
+                    <span class="text-xs text-slate-500">${ev.who}</span>
+                    <span class="font-bold ${ev.color}">${ev.title}</span>
+                </div>
+                <p class="text-sm text-slate-400 word-keep-all">${ev.detail}</p>
+            </div>
+        </div>`
+    ).join('');
+
+/* ══════════════════════════════════════════════════════════════
+   SECTION 3: 관측성 비교
+   ══════════════════════════════════════════════════════════════ */
+const CMP_HEADERS = ['관측 항목', 'LiveKit Cloud', 'Twilio', 'BigBlueButton', '<span class="text-brand-rust">0x</span>LENS'];
+const CMP_ROWS = [
+    ['방/세션 집계 메트릭',          'yes', 'yes', 'yes', 'yes'],
+    ['Per-participant 품질',         'yes', 'yes', 'no',  'yes'],
+    ['Publish→SFU→Subscribe 경로 분리', 'no',  'partial', 'no', 'oxlens'],
+    ['서버↔클라이언트 교차 검증 (LOSS CROSS-REF)', 'no', 'no', 'no', 'oxlens'],
+    ['RTX/NACK 상세 (budget, cache miss)', 'no', 'no', 'no', 'oxlens'],
+    ['인코더 내부 상태 (enc_time, quality_limit)', 'no', 'no', 'no', 'oxlens'],
+    ['PTT Floor Control 진단',       'no',  'no',  'no',  'oxlens'],
+    ['실시간 통합 타임라인 (CLI+SFU 이벤트)', 'no', 'no', 'no', 'oxlens'],
+    ['AI 인과 추론용 구조화 데이터',  'no',  'no',  'no',  'oxlens'],
+    ['Analytics API (페이징)',        'yes', 'yes', 'no',  'yes'],
+];
+const CMP_CELL = {
+    yes: '<span class="cmp-yes">✓</span>',
+    no: '<span class="cmp-no">—</span>',
+    partial: '<span class="cmp-partial">△</span>',
+    oxlens: '<span class="cmp-oxlens">★</span>',
+};
+
+document.getElementById('cmpTable').innerHTML =
+    `<thead><tr class="border-b border-slate-700">
+        ${CMP_HEADERS.map((h, i) =>
+            `<th class="text-left py-3 px-3 font-mono text-xs ${i === 0 ? 'text-slate-400' : i === 4 ? 'text-white' : 'text-slate-500'}">${h}</th>`
+        ).join('')}
+    </tr></thead><tbody>
+        ${CMP_ROWS.map(row =>
+            `<tr class="border-b border-slate-800/50 hover:bg-slate-800/20 transition-colors">
+                <td class="py-3 px-3 text-slate-300 word-keep-all">${row[0]}</td>
+                ${row.slice(1).map(v => `<td class="py-3 px-3 text-center">${CMP_CELL[v]}</td>`).join('')}
+            </tr>`
+        ).join('')}
+    </tbody>`;
+
+/* ══════════════════════════════════════════════════════════════
+   SECTION 4: WHY AI-NATIVE
+   ══════════════════════════════════════════════════════════════ */
+const WHY_CARDS = [
+    {
+        icon: '🧠',
+        title: '엔지니어의 직관 + AI의 정밀함',
+        desc: '엔지니어는 "lost 버스트와 fps 변동을 잡자"라는 방향을 제시합니다. AI는 240개 데이터 포인트를 교차 분석하여 "RTX amplification이 근본 원인"임을 특정합니다. 각자가 잘하는 일에 집중합니다.',
+    },
+    {
+        icon: '🔗',
+        title: '인과 분석이 가능한 데이터 구조',
+        desc: '동일한 "loss 54%"라는 숫자도, Publish→SFU→Subscribe 경로가 분리되어 있으면 AI가 "SFU→B 방향, RTX 증폭이 원인"을 즉시 판별합니다. 이 구조가 없으면 AI도 "네트워크 문제인 것 같습니다" 수준의 답변밖에 할 수 없습니다.',
+    },
+    {
+        icon: '⚡',
+        title: '발견 → 수정 → 검증, 단일 루프',
+        desc: '엔지니어가 문제를 정의하고 테스트를 돌리면, AI가 분석하고 코딩합니다. 엔지니어가 빌드/배포하면, AI가 결과를 검증합니다. 이 전체가 한 세션(30분~1시간)에 완결됩니다.',
+    },
+];
+
+document.getElementById('whyCards').innerHTML = WHY_CARDS.map(c =>
+    `<div class="bg-brand-surface rounded-2xl p-6 border border-slate-700/50">
+        <div class="text-2xl mb-3">${c.icon}</div>
+        <h4 class="font-bold text-white mb-2 word-keep-all">${c.title}</h4>
+        <p class="text-sm text-slate-400 word-keep-all leading-relaxed">${c.desc}</p>
+    </div>`
+).join('');
+</script>
+
+</body>
+</html>

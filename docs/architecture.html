@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="ko">
+<!--
+  @author: kodeholic (powered by Claude)
+  @description: 0xLENS — System Architecture Overview
+  @version: v1.0.0
+-->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>0xLENS — System Architecture</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Pretendard', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        brand: { rust: '#E45B25', cyan: '#00F0FF', dark: '#0B0F19', surface: '#151B2B' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #0B0F19; color: #E2E8F0; }
+        .bg-grid {
+            background-size: 40px 40px;
+            background-image: linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+                              linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
+        }
+        .text-gradient { background: linear-gradient(to right, #E45B25, #FF8A50); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0B0F19; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        .word-keep-all { word-break: keep-all; }
+        .layer-card { transition: all 0.2s ease; }
+        .layer-card:hover { border-color: rgba(0,240,255,0.25); transform: translateY(-1px); }
+        .code-block { background: #1e293b; border: 1px solid #334155; border-radius: 8px; }
+        .quote-bar { border-left: 3px solid #E45B25; }
+    </style>
+</head>
+<body class="bg-grid min-h-screen font-sans antialiased selection:bg-brand-rust selection:text-white">
+
+<!-- Header -->
+<header class="sticky top-0 z-50 bg-brand-dark/90 backdrop-blur-md border-b border-white/10">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+        <a href="../index.html" class="flex items-center gap-2">
+            <span class="font-mono text-xl font-extrabold tracking-tight">
+                <span class="text-brand-rust">0x</span><span class="text-white">LENS</span>
+            </span>
+            <span class="text-gray-600 text-xs font-mono">Architecture</span>
+        </a>
+        <nav class="flex items-center gap-4 text-xs font-mono text-gray-500">
+            <a href="../index.html" class="hover:text-white transition">&larr; Home</a>
+            <a href="./benchmark.html" class="hover:text-white transition">Benchmark</a>
+            <a href="./ptt-design.html" class="hover:text-white transition">PTT Design</a>
+            <a href="./sdk-genesis.html" class="hover:text-white transition">SDK Genesis</a>
+        </nav>
+    </div>
+</header>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- HERO -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="max-w-5xl mx-auto px-4 sm:px-6 pt-12 sm:pt-20 pb-8">
+    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs font-mono text-brand-cyan mb-6">
+        <span class="w-2 h-2 rounded-full bg-brand-cyan"></span>
+        Rust + Kotlin + JavaScript · Single UDP Port · ICE-Lite · No TURN
+    </div>
+    <h1 class="text-3xl sm:text-5xl font-extrabold text-white leading-tight mb-6 tracking-tight word-keep-all">
+        <span class="text-gradient">하나의 포트</span>,<br>
+        하나의 프로토콜,<br>
+        <span class="text-gradient">세 개의 플랫폼</span>.
+    </h1>
+    <p class="text-gray-400 text-base sm:text-lg leading-relaxed max-w-3xl word-keep-all">
+        <span class="text-brand-rust">0x</span><span class="text-white">LENS</span>는
+        <strong class="text-white">UDP 19740 단일 포트</strong>에서 STUN, DTLS, SRTP를 모두 처리하고,
+        <strong class="text-white">WS 1974 단일 포트</strong>로 시그널링을 수행합니다.
+        TURN 서버 없이. STUN 외부 서버 없이. SDP 재협상 없이.
+        서버가 해야 할 일만 하고, 하지 말아야 할 일은 하지 않습니다.
+    </p>
+</section>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 1: BIG PICTURE -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+    <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">01 — BIG PICTURE</h2>
+    <h3 class="text-2xl font-bold mb-8 word-keep-all">전체 시스템 구조</h3>
+
+    <!-- 3-Stack Overview -->
+    <div class="grid md:grid-cols-3 gap-4 mb-8">
+        <div class="layer-card bg-brand-surface rounded-xl border border-brand-rust/30 p-5">
+            <div class="text-xs font-mono text-brand-rust font-bold mb-2">SFU SERVER</div>
+            <div class="text-white font-bold mb-2">Rust + Tokio + Axum</div>
+            <div class="text-xs text-slate-400 space-y-1 word-keep-all">
+                <div>▸ 단일 바이너리, 외부 의존성 제로</div>
+                <div>▸ UDP 19740 (미디어) + WS 1974 (시그널링)</div>
+                <div>▸ ICE-Lite + DTLS + SRTP</div>
+                <div>▸ DashMap 3중 인덱스 O(1) 조회</div>
+                <div>▸ SO_REUSEPORT × 4 워커 + per-sub egress</div>
+            </div>
+        </div>
+        <div class="layer-card bg-brand-surface rounded-xl border border-brand-cyan/30 p-5">
+            <div class="text-xs font-mono text-brand-cyan font-bold mb-2">WEB CLIENT</div>
+            <div class="text-white font-bold mb-2">Vanilla JS + WebRTC API</div>
+            <div class="text-xs text-slate-400 space-y-1 word-keep-all">
+                <div>▸ Fake SDP 조립 (서버 server_config 기반)</div>
+                <div>▸ 2PC: Publish PC + Subscribe PC 분리</div>
+                <div>▸ 5-Stage Telemetry (S/A/B/C/P)</div>
+                <div>▸ Admin 대시보드 (20-slot ring buffer)</div>
+                <div>▸ Tailwind CSS + Phosphor Icons</div>
+            </div>
+        </div>
+        <div class="layer-card bg-brand-surface rounded-xl border border-green-500/30 p-5">
+            <div class="text-xs font-mono text-green-400 font-bold mb-2">ANDROID SDK</div>
+            <div class="text-white font-bold mb-2">Kotlin + libwebrtc AAR</div>
+            <div class="text-xs text-slate-400 space-y-1 word-keep-all">
+                <div>▸ org.webrtc.* Java API 직접 사용</div>
+                <div>▸ SdpBuilder Kotlin 포팅 (JS 참조)</div>
+                <div>▸ Camera2 + AudioSwitch + Compose UI</div>
+                <div>▸ FloorFsm (PTT 발화권 상태 머신)</div>
+                <div>▸ Telemetry 전 구간 수집 (S/A/B/C/P)</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Connection Diagram -->
+    <div class="bg-brand-surface rounded-2xl border border-white/10 p-6 overflow-x-auto">
+        <div class="min-w-[600px] font-mono text-xs text-slate-400 leading-relaxed">
+            <div class="text-slate-500 mb-4">// 전체 연결 흐름</div>
+            <div class="grid grid-cols-[1fr_80px_1fr_80px_1fr] items-center gap-y-2">
+                <div class="text-center">
+                    <div class="text-brand-cyan font-bold text-sm mb-1">Client A</div>
+                    <div class="text-slate-500">(Browser / Android)</div>
+                </div>
+                <div></div>
+                <div class="text-center">
+                    <div class="text-brand-rust font-bold text-sm mb-1">0xLENS SFU</div>
+                    <div class="text-slate-500">(Rust + Tokio)</div>
+                </div>
+                <div></div>
+                <div class="text-center">
+                    <div class="text-green-400 font-bold text-sm mb-1">Client B</div>
+                    <div class="text-slate-500">(Browser / Android)</div>
+                </div>
+
+                <!-- WS row -->
+                <div class="text-right text-brand-cyan">WS :1974</div>
+                <div class="text-center text-slate-600">──────→</div>
+                <div class="text-center text-yellow-400/70">시그널링 (JSON opcode)</div>
+                <div class="text-center text-slate-600">←──────</div>
+                <div class="text-left text-green-400">WS :1974</div>
+
+                <!-- UDP row -->
+                <div class="text-right text-brand-cyan">UDP :19740</div>
+                <div class="text-center text-slate-600">══════→</div>
+                <div class="text-center text-white font-bold">STUN → DTLS → SRTP</div>
+                <div class="text-center text-slate-600">←══════</div>
+                <div class="text-left text-green-400">UDP :19740</div>
+
+                <!-- Publish -->
+                <div class="text-right text-brand-cyan">Pub PC → RTP</div>
+                <div class="text-center text-slate-600">━━━━━→</div>
+                <div class="text-center text-slate-300">decrypt → <span class="text-brand-rust">fan-out</span> → encrypt</div>
+                <div class="text-center text-slate-600">━━━━━→</div>
+                <div class="text-left text-green-400">Sub PC ← RTP</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 2: WHY NO TURN, WHY NO STUN SERVER -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+    <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">02 — ICE-LITE (BUILT-IN STUN)</h2>
+    <h3 class="text-2xl font-bold mb-4 word-keep-all">TURN이 필요 없는 이유, STUN 서버가 필요 없는 이유</h3>
+    <p class="text-slate-400 mb-8 word-keep-all">
+        일반적인 WebRTC 서비스는 <strong class="text-white">STUN 서버</strong>(NAT 뒤의 공인 IP 확인용)와
+        <strong class="text-white">TURN 서버</strong>(방화벽 우회 릴레이)를 별도로 운영합니다.
+        0xLENS는 둘 다 필요 없습니다. SFU 자체가 그 역할을 합니다.
+    </p>
+
+    <div class="grid md:grid-cols-2 gap-6 mb-8">
+        <!-- 일반적인 구조 -->
+        <div class="bg-brand-surface rounded-xl border border-slate-700/50 p-6">
+            <div class="text-xs font-mono text-slate-500 mb-2">TYPICAL WebRTC</div>
+            <h4 class="text-white font-bold mb-4">별도 인프라 3개 필요</h4>
+            <div class="space-y-3 text-sm text-slate-400 word-keep-all">
+                <div class="flex gap-2"><span class="text-red-400/60 shrink-0">①</span><span><strong class="text-slate-300">STUN 서버</strong> — 클라이언트가 자기 공인 IP를 알아내는 용도. NAT 뒤에 있으면 필수.</span></div>
+                <div class="flex gap-2"><span class="text-red-400/60 shrink-0">②</span><span><strong class="text-slate-300">TURN 서버</strong> — 양쪽 다 NAT/방화벽 뒤일 때 미디어를 릴레이. 대역폭 비용 높음.</span></div>
+                <div class="flex gap-2"><span class="text-red-400/60 shrink-0">③</span><span><strong class="text-slate-300">SFU 서버</strong> — 미디어 라우팅. 위 두 서버와 별도 운영.</span></div>
+                <div class="mt-3 pt-3 border-t border-slate-700 text-xs text-slate-500">
+                    운영 비용: STUN 서버 + TURN 서버 + SFU 서버 = <span class="text-red-400">인프라 3중 관리</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 0xLENS 구조 -->
+        <div class="bg-brand-surface rounded-xl border border-brand-rust/30 p-6">
+            <div class="text-xs font-mono"><span class="text-brand-rust">0x</span>LENS <span class="text-brand-rust">ICE-LITE</span></div>
+            <h4 class="text-white font-bold mb-4 mt-2">SFU가 전부 처리</h4>
+            <div class="space-y-3 text-sm text-slate-400 word-keep-all">
+                <div class="flex gap-2"><span class="text-green-400 shrink-0">①</span><span><strong class="text-slate-300">Built-in STUN 응답</strong> — SFU가 ICE-Lite로서 STUN Binding Response를 직접 생성. 클라이언트는 SFU를 ICE 상대로 인식.</span></div>
+                <div class="flex gap-2"><span class="text-green-400 shrink-0">②</span><span><strong class="text-slate-300">TURN 불필요</strong> — SFU가 공인 IP에 위치. 클라이언트→SFU는 항상 직접 연결 가능 (outbound UDP).</span></div>
+                <div class="flex gap-2"><span class="text-green-400 shrink-0">③</span><span><strong class="text-slate-300">단일 바이너리</strong> — STUN + DTLS + SRTP + 시그널링 + 릴레이 = 하나의 프로세스.</span></div>
+                <div class="mt-3 pt-3 border-t border-brand-rust/20 text-xs text-green-400 font-mono">
+                    운영 비용: SFU 1대 = 끝. RPi에서도 동작.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 기술 상세 -->
+    <div class="bg-brand-surface rounded-2xl border border-white/10 p-6 mb-6">
+        <h4 class="text-white font-bold mb-4">ICE-Lite의 Built-in STUN — 어떻게 동작하는가</h4>
+        <div class="grid md:grid-cols-2 gap-6">
+            <div class="space-y-3 text-sm text-slate-400 word-keep-all">
+                <p>일반적인 WebRTC에서 클라이언트는 <strong class="text-white">외부 STUN 서버</strong>(예: Google stun.l.google.com)에 Binding Request를 보내 자신의 NAT 매핑된 공인 IP:Port를 알아냅니다. 이것이 ICE candidate 수집 과정입니다.</p>
+                <p>0xLENS는 이 단계를 <strong class="text-white">건너뜁니다</strong>. 클라이언트의 SDP에 <code class="text-cyan-400 font-mono text-xs">iceServers: []</code> — 빈 배열을 넣습니다. 외부 STUN 서버를 안 쓴다는 뜻입니다.</p>
+                <p>대신 클라이언트는 <strong class="text-white">SFU의 IP:Port를 직접 remote candidate로</strong> 받습니다. server_config 응답에 SFU의 공인 IP와 UDP 포트가 포함되어 있고, 클라이언트가 이것을 <code class="text-cyan-400 font-mono text-xs">addIceCandidate()</code>로 등록합니다.</p>
+            </div>
+            <div class="space-y-3 text-sm text-slate-400 word-keep-all">
+                <p>그러면 브라우저의 ICE agent가 SFU로 직접 <strong class="text-white">STUN Binding Request</strong>를 보냅니다. SFU의 ICE-Lite 구현(<code class="text-cyan-400 font-mono text-xs">ice.rs</code>)이 이 요청을 받아서:</p>
+                <div class="code-block p-3 font-mono text-[11px] text-slate-400 space-y-0.5">
+                    <div>① USERNAME 검증 (server_ufrag:client_ufrag)</div>
+                    <div>② MESSAGE-INTEGRITY 검증 (HMAC-SHA1)</div>
+                    <div>③ <span class="text-brand-cyan">XOR-MAPPED-ADDRESS</span> 생성 (클라이언트 공인 IP)</div>
+                    <div>④ Binding Success Response 전송</div>
+                    <div>⑤ USE-CANDIDATE → candidate pair selected</div>
+                </div>
+                <p class="mt-2">클라이언트 입장에서는 <strong class="text-white">SFU가 ICE 상대이자 미디어 수신자</strong>입니다. RFC 8489 표준 프로토콜로 응답하므로 브라우저는 별도 STUN 서버와 차이를 구분하지 못합니다.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-brand-surface rounded-2xl border border-white/10 p-6 mb-6">
+        <h4 class="text-white font-bold mb-4">TURN이 불필요한 이유</h4>
+        <div class="text-sm text-slate-400 word-keep-all space-y-3">
+            <p>TURN 서버가 필요한 경우는 <strong class="text-white">양쪽 모두 NAT/방화벽 뒤에 있어서 직접 UDP 통신이 불가능</strong>할 때입니다. P2P 통화에서는 흔한 상황입니다.</p>
+            <p>하지만 SFU 구조에서는 상황이 다릅니다:</p>
+            <div class="grid sm:grid-cols-2 gap-4 mt-3">
+                <div class="bg-brand-dark/50 rounded-lg p-4 border border-white/5">
+                    <div class="text-brand-cyan font-mono font-bold text-xs mb-2">SFU = 공인 IP</div>
+                    <p class="text-xs text-slate-400 word-keep-all">SFU 서버는 공인 IP에서 UDP 포트를 열고 대기합니다. 클라이언트가 보내는 패킷은 outbound UDP이므로 대부분의 NAT/방화벽을 통과합니다.</p>
+                </div>
+                <div class="bg-brand-dark/50 rounded-lg p-4 border border-white/5">
+                    <div class="text-brand-cyan font-mono font-bold text-xs mb-2">NAT 매핑 유지</div>
+                    <p class="text-xs text-slate-400 word-keep-all">클라이언트가 SFU에 패킷을 보내면 NAT 매핑이 생기고, SFU의 응답(STUN Response, DTLS, SRTP)은 같은 매핑을 통해 돌아옵니다. ICE-Lite의 STUN 응답이 이 매핑을 최초에 만듭니다.</p>
+                </div>
+            </div>
+            <p class="mt-2">결과적으로, <strong class="text-white">클라이언트 → SFU(공인 IP) 방향의 outbound UDP만 성공하면 양방향 통신이 성립</strong>합니다. 기업 네트워크에서 outbound UDP가 완전 차단된 극단적인 경우만 예외이며, 이 경우에도 TURN보다는 TCP/TLS fallback이 더 현실적입니다.</p>
+        </div>
+    </div>
+
+    <div class="quote-bar bg-brand-surface rounded-r-xl px-5 py-4">
+        <p class="text-slate-400 text-sm italic word-keep-all">
+            "STUN 서버를 별도로 운영하는 건, 우체국에 가서 자기 집 주소를 물어보는 것과 같다.
+            우리 SFU는 편지를 받는 사람이 직접 주소를 알려준다."
+        </p>
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 3: SINGLE PORT DEMUX -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+    <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">03 — SINGLE PORT DEMUX</h2>
+    <h3 class="text-2xl font-bold mb-4 word-keep-all">단일 UDP 포트에서 모든 것을 처리하는 법</h3>
+    <p class="text-slate-400 mb-8 word-keep-all">
+        UDP 19740 하나로 STUN, DTLS, SRTP를 모두 받습니다.
+        <strong class="text-white">첫 바이트 1개</strong>만 보면 무엇인지 알 수 있습니다 (RFC 5764).
+    </p>
+
+    <div class="bg-brand-surface rounded-2xl border border-white/10 p-6 mb-6 overflow-x-auto">
+        <div class="font-mono text-xs min-w-[500px]">
+            <div class="text-slate-500 mb-3">// demux.rs — RFC 5764 Section 5.1.2</div>
+            <div class="grid grid-cols-[120px_1fr_1fr] gap-y-2 text-slate-300">
+                <div class="text-slate-500 font-bold">First Byte</div>
+                <div class="text-slate-500 font-bold">Type</div>
+                <div class="text-slate-500 font-bold">Handler</div>
+
+                <div class="text-brand-cyan">0x00..0x03</div>
+                <div>STUN</div>
+                <div class="text-slate-400">ice.rs → Binding Response (ICE connectivity check)</div>
+
+                <div class="text-yellow-400">0x14..0x3F</div>
+                <div>DTLS</div>
+                <div class="text-slate-400">dtls.rs → Handshake → SRTP 키 도출</div>
+
+                <div class="text-brand-rust">0x80..0xBF</div>
+                <div>SRTP / SRTCP</div>
+                <div class="text-slate-400">srtp.rs → decrypt → fan-out → encrypt → send</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-brand-surface rounded-2xl border border-white/10 p-6">
+        <h4 class="text-white font-bold mb-4">연결 수립 시퀀스</h4>
+        <div class="space-y-4 text-sm">
+            <div class="flex items-start gap-4">
+                <div class="w-8 h-8 rounded-full bg-brand-cyan/15 flex items-center justify-center shrink-0 text-brand-cyan font-mono font-bold text-xs">1</div>
+                <div>
+                    <div class="text-white font-bold">WS 연결 + HELLO → IDENTIFY</div>
+                    <div class="text-slate-400 word-keep-all">클라이언트가 WS 1974에 연결. 서버가 HELLO(heartbeat_interval) 전송, 클라이언트가 IDENTIFY(user_id) 응답.</div>
+                </div>
+            </div>
+            <div class="flex items-start gap-4">
+                <div class="w-8 h-8 rounded-full bg-brand-cyan/15 flex items-center justify-center shrink-0 text-brand-cyan font-mono font-bold text-xs">2</div>
+                <div>
+                    <div class="text-white font-bold">ROOM_JOIN → server_config</div>
+                    <div class="text-slate-400 word-keep-all">서버가 ICE credentials(ufrag/pwd), DTLS fingerprint, 코덱 정책, <strong class="text-white">공인 IP + UDP 포트</strong>를 전달. 이것이 STUN/TURN 서버를 대체하는 핵심.</div>
+                </div>
+            </div>
+            <div class="flex items-start gap-4">
+                <div class="w-8 h-8 rounded-full bg-brand-cyan/15 flex items-center justify-center shrink-0 text-brand-cyan font-mono font-bold text-xs">3</div>
+                <div>
+                    <div class="text-white font-bold">Fake SDP 조립 → 2PC 생성</div>
+                    <div class="text-slate-400 word-keep-all">클라이언트가 server_config 기반으로 SDP를 <strong class="text-white">로컬에서 직접 조립</strong>. SDP 교환이 아니라 SDP 빌딩. Publish PC, Subscribe PC 각각 생성.</div>
+                </div>
+            </div>
+            <div class="flex items-start gap-4">
+                <div class="w-8 h-8 rounded-full bg-brand-cyan/15 flex items-center justify-center shrink-0 text-brand-cyan font-mono font-bold text-xs">4</div>
+                <div>
+                    <div class="text-white font-bold">ICE: STUN Binding (SFU가 응답)</div>
+                    <div class="text-slate-400 word-keep-all">브라우저 ICE agent가 SFU로 STUN Binding Request 전송. SFU의 ice.rs가 XOR-MAPPED-ADDRESS로 응답. <strong class="text-white">클라이언트의 NAT 매핑 성립</strong>.</div>
+                </div>
+            </div>
+            <div class="flex items-start gap-4">
+                <div class="w-8 h-8 rounded-full bg-yellow-500/15 flex items-center justify-center shrink-0 text-yellow-400 font-mono font-bold text-xs">5</div>
+                <div>
+                    <div class="text-white font-bold">DTLS Handshake → SRTP 키 도출</div>
+                    <div class="text-slate-400 word-keep-all">같은 UDP 포트에서 DTLS 핸드셰이크. 완료 후 RFC 5764 레이아웃으로 SRTP master key/salt 도출. 이 시점부터 미디어 암호화 가능.</div>
+                </div>
+            </div>
+            <div class="flex items-start gap-4">
+                <div class="w-8 h-8 rounded-full bg-green-500/15 flex items-center justify-center shrink-0 text-green-400 font-mono font-bold text-xs">6</div>
+                <div>
+                    <div class="text-white font-bold">SRTP 미디어 송수신</div>
+                    <div class="text-slate-400 word-keep-all">같은 UDP 포트로 SRTP 패킷 송수신 시작. 서버는 decrypt → 참가자 조회(by_addr, O(1)) → fan-out → encrypt → send.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 4: 2PC + SDP-FREE -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+    <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">04 — 2PC & SDP-FREE</h2>
+    <h3 class="text-2xl font-bold mb-4 word-keep-all">SDP 재협상 지옥에서 탈출한 방법</h3>
+    <p class="text-slate-400 mb-8 word-keep-all">
+        일반적인 SFU는 참가자가 입장/퇴장할 때마다 SDP Offer/Answer를 재협상합니다.
+        N명이 동시에 움직이면 <strong class="text-white">SDP 재협상 경합(race condition)</strong>이 발생합니다.
+        이전 프로젝트를 말아먹은 원인이 바로 이것이었습니다.
+    </p>
+
+    <div class="grid md:grid-cols-2 gap-6 mb-8">
+        <div class="bg-brand-surface rounded-xl border border-red-500/20 p-6">
+            <div class="text-xs font-mono text-red-400 font-bold mb-3">SINGLE PC — 재협상 지옥</div>
+            <div class="text-sm text-slate-400 space-y-2 word-keep-all">
+                <p>하나의 PeerConnection에 publish + subscribe 트랙을 모두 넣으면, 참가자 변동 시마다 <strong class="text-red-400">전체 SDP를 다시 교환</strong>해야 합니다.</p>
+                <p>3명이 동시에 입장하면 SDP renegotiation 3건이 겹치고, 중간에 rollback이 필요하고, 타이밍에 따라 트랙이 누락되고...</p>
+                <p class="text-red-400 font-bold text-xs font-mono">→ "가끔 소리가 안 들려요" 버그의 근본 원인</p>
+            </div>
+        </div>
+        <div class="bg-brand-surface rounded-xl border border-green-500/20 p-6">
+            <div class="text-xs font-mono text-green-400 font-bold mb-3">2PC — 관심사 분리</div>
+            <div class="text-sm text-slate-400 space-y-2 word-keep-all">
+                <p><strong class="text-white">Publish PC</strong>: 내 미디어를 서버에 보내는 전용. 한 번 만들면 다시 협상할 일 없음.</p>
+                <p><strong class="text-white">Subscribe PC</strong>: 남의 미디어를 서버에서 받는 전용. 참가자 변동 시 이것만 업데이트.</p>
+                <p class="text-green-400 font-bold text-xs font-mono">→ Publish는 절대 건드리지 않음. Subscribe만 관리.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-brand-surface rounded-2xl border border-white/10 p-6">
+        <h4 class="text-white font-bold mb-4">SDP-Free 란?</h4>
+        <div class="text-sm text-slate-400 word-keep-all space-y-3">
+            <p>서버가 SDP를 <strong class="text-white">전혀 파싱하지 않습니다</strong>. 서버는 SSRC(32-bit 숫자)와 코덱 설정만 알면 됩니다.</p>
+            <p>SDP는 클라이언트 쪽에서 <strong class="text-white">서버가 보내준 server_config를 기반으로 로컬에서 조립</strong>(Fake SDP)합니다. 서버→클라이언트 SDP 교환이 아니라, 서버가 재료를 주면 클라이언트가 레시피대로 만드는 구조입니다.</p>
+            <p>이 SDP 빌더는 JavaScript(oxlens-home), Kotlin(Android SDK) 두 곳에 동일한 로직으로 포팅되어 있습니다.</p>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 5: SIGNALING PROTOCOL -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+    <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">05 — SIGNALING PROTOCOL</h2>
+    <h3 class="text-2xl font-bold mb-4 word-keep-all">Discord 스타일 Opcode — 하나의 프로토콜, 세 플랫폼</h3>
+    <p class="text-slate-400 mb-8 word-keep-all">
+        모든 시그널링은 JSON over WebSocket. 패킷 형식: <code class="text-cyan-400 font-mono text-xs">{"op": N, "d": {...}, "pid": N}</code>.
+        웹, Android, 향후 iOS까지 동일한 opcode 체계를 사용합니다.
+    </p>
+
+    <div class="overflow-x-auto mb-6">
+        <table class="w-full text-sm font-mono border-collapse">
+            <thead>
+                <tr class="border-b border-white/10 text-gray-500 text-left text-xs">
+                    <th class="py-2 pr-3">op</th><th class="py-2 pr-3">Name</th><th class="py-2 pr-3">Direction</th><th class="py-2">Purpose</th>
+                </tr>
+            </thead>
+            <tbody class="text-gray-300 text-xs" id="opcodeTable"></tbody>
+        </table>
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 6: DATA PLANE -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+    <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">06 — DATA PLANE</h2>
+    <h3 class="text-2xl font-bold mb-4 word-keep-all">미디어 처리 파이프라인</h3>
+    <p class="text-slate-400 mb-8 word-keep-all">
+        3단계 워커 파이프라인으로 30인 Conference loss 0.000%를 달성.
+    </p>
+
+    <div class="grid md:grid-cols-3 gap-4 mb-8">
+        <div class="layer-card bg-brand-surface rounded-xl border border-white/10 p-5">
+            <div class="text-brand-cyan font-mono font-bold text-sm mb-2">Ingress</div>
+            <div class="text-xs text-slate-400 space-y-1.5 word-keep-all">
+                <div>▸ SO_REUSEPORT × 4 워커</div>
+                <div>▸ 커널이 4-tuple hash로 패킷 분배</div>
+                <div>▸ 각 워커: recv → demux → decrypt</div>
+                <div>▸ DashMap by_addr → O(1) 참가자 조회</div>
+            </div>
+        </div>
+        <div class="layer-card bg-brand-surface rounded-xl border border-white/10 p-5">
+            <div class="text-brand-rust font-mono font-bold text-sm mb-2">Fan-out</div>
+            <div class="text-xs text-slate-400 space-y-1.5 word-keep-all">
+                <div>▸ 같은 방 참가자에게 try_send()</div>
+                <div>▸ bounded mpsc (256 slots)</div>
+                <div>▸ 큐 풀 시 backpressure drop</div>
+                <div>▸ NACK/RTX가 손실 커버</div>
+            </div>
+        </div>
+        <div class="layer-card bg-brand-surface rounded-xl border border-white/10 p-5">
+            <div class="text-green-400 font-mono font-bold text-sm mb-2">Egress</div>
+            <div class="text-xs text-slate-400 space-y-1.5 word-keep-all">
+                <div>▸ Subscriber별 전용 task</div>
+                <div>▸ 각 task가 outbound SRTP 독점</div>
+                <div>▸ Mutex 경합 제로 (LiveKit 패턴)</div>
+                <div>▸ encrypt → send_to()</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-brand-surface rounded-2xl border border-white/10 p-6">
+        <h4 class="text-white font-bold mb-3">O(1) 참가자 조회 — DashMap 3중 인덱스</h4>
+        <div class="text-sm text-slate-400 word-keep-all space-y-2">
+            <p>미디어 hot path에서 가장 중요한 것은 <strong class="text-white">"이 패킷이 누구의 것인가"</strong>를 빠르게 알아내는 것입니다.</p>
+            <div class="code-block p-4 font-mono text-xs text-slate-400 mt-3 space-y-1">
+                <div><span class="text-brand-cyan">by_addr</span>  : SocketAddr → (Participant, PcType)  <span class="text-slate-600">// SRTP hot path, 매 패킷</span></div>
+                <div><span class="text-brand-cyan">by_ufrag</span> : String → (Participant, PcType)      <span class="text-slate-600">// STUN cold path, 연결 초기</span></div>
+                <div><span class="text-brand-cyan">by_user</span>  : String → Participant                <span class="text-slate-600">// 시그널링 (WS handler)</span></div>
+            </div>
+            <p class="mt-2">2PC 구조에서 같은 유저가 addr 2개를 사용(브라우저가 PC마다 별도 UDP 소켓 바인딩)하므로, by_addr과 by_ufrag에는 PcType(Pub/Sub) 구분이 포함됩니다.</p>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- SECTION 7: KEY DESIGN DECISIONS -->
+<!-- ═══════════════════════════════════════════ -->
+<section class="max-w-5xl mx-auto px-4 sm:px-6 pb-20">
+    <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">07 — KEY DECISIONS</h2>
+    <h3 class="text-2xl font-bold mb-8 word-keep-all">핵심 설계 결정</h3>
+
+    <div class="space-y-4" id="decisionCards"></div>
+</section>
+
+<!-- Footer -->
+<footer class="max-w-5xl mx-auto px-6 py-8 border-t border-slate-800 text-center text-slate-600 text-xs font-mono">
+    <span class="text-brand-rust">0x</span><span class="text-white">LENS</span> — System Architecture Overview &nbsp;|&nbsp; author: kodeholic (powered by Claude)
+</footer>
+
+<script>
+// author: kodeholic (powered by Claude)
+
+/* ═══════ OPCODE TABLE ═══════ */
+const OPCODES = [
+    { op: 0,  name: 'HELLO', dir: 'S→C', purpose: 'heartbeat_interval 전달, 연결 수립' },
+    { op: 1,  name: 'HEARTBEAT', dir: 'C→S', purpose: '생존 확인 (30초 주기)' },
+    { op: 3,  name: 'IDENTIFY', dir: 'C→S', purpose: '인증 (user_id 전달)' },
+    { op: 11, name: 'ROOM_JOIN', dir: 'C→S', purpose: '방 입장 → server_config(ICE/DTLS/코덱/공인IP) 수신' },
+    { op: 15, name: 'PUBLISH_TRACKS', dir: 'C→S', purpose: '트랙 SSRC 등록 (서버가 미디어 라우팅에 사용)' },
+    { op: 16, name: 'TRACKS_ACK', dir: 'C→S', purpose: 'subscribe 트랙 확인 응답 (불일치 시 RESYNC)' },
+    { op: 18, name: 'CAMERA_READY', dir: 'C→S', purpose: '카메라 웜업 완료 → 서버가 PLI 발사' },
+    { op: 30, name: 'TELEMETRY', dir: 'C→S', purpose: '5-Stage 텔레메트리 보고 (3초 주기)' },
+    { op: 40, name: 'FLOOR_REQUEST', dir: 'C→S', purpose: 'PTT 발화권 요청', ptt: true },
+    { op: 41, name: 'FLOOR_RELEASE', dir: 'C→S', purpose: 'PTT 발화권 해제', ptt: true },
+    { op: 42, name: 'FLOOR_PING', dir: 'C→S', purpose: '발화자 생존 확인 (2초 주기)', ptt: true },
+    { op: 101, name: 'TRACKS_UPDATE', dir: 'S→C', purpose: '트랙 추가/제거 브로드캐스트' },
+    { op: 106, name: 'TRACKS_RESYNC', dir: 'S→C', purpose: '트랙 목록 전체 재동기화' },
+    { op: 141, name: 'FLOOR_TAKEN', dir: 'S→C', purpose: '발화권 획득 브로드캐스트', ptt: true },
+    { op: 142, name: 'FLOOR_IDLE', dir: 'S→C', purpose: '발화권 해제 브로드캐스트', ptt: true },
+    { op: 143, name: 'FLOOR_REVOKE', dir: 'S→C', purpose: '서버 강제 발화권 회수', ptt: true },
+];
+
+document.getElementById('opcodeTable').innerHTML = OPCODES.map(o => {
+    const dirColor = o.dir.startsWith('C') ? 'text-brand-cyan' : 'text-brand-rust';
+    const pttBadge = o.ptt ? '<span class="ml-1 px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400 text-[9px]">PTT</span>' : '';
+    return `<tr class="border-b border-white/5 hover:bg-white/[0.02]">
+        <td class="py-2 pr-3 text-slate-500">${o.op}</td>
+        <td class="py-2 pr-3 text-white">${o.name}${pttBadge}</td>
+        <td class="py-2 pr-3 ${dirColor}">${o.dir}</td>
+        <td class="py-2 text-slate-400 word-keep-all">${o.purpose}</td>
+    </tr>`;
+}).join('');
+
+/* ═══════ DECISIONS ═══════ */
+const DECISIONS = [
+    {
+        title: 'ICE-Lite (Built-in STUN) → 외부 TURN/STUN 서버 불필요',
+        detail: 'SFU가 ICE-Lite로서 STUN Binding Response를 직접 생성합니다. 클라이언트의 ICE agent는 SFU를 상대로 connectivity check를 수행하며, NAT 매핑이 자동 성립합니다. 별도 인프라가 필요 없으므로 RPi 1대로도 운영 가능합니다.',
+        tag: 'infra',
+    },
+    {
+        title: '2PC (Two PeerConnection) → SDP 재협상 제거',
+        detail: 'Publish PC와 Subscribe PC를 분리하여 송신과 수신의 관심사를 격리합니다. 참가자 변동은 Subscribe PC만 영향받으며, Publish PC는 한 번 만들면 변경하지 않습니다.',
+        tag: 'arch',
+    },
+    {
+        title: 'SDP-Free (서버는 SDP를 모른다)',
+        detail: '서버는 SDP를 파싱하지 않습니다. 서버가 server_config(코덱, ICE, DTLS)를 내려주면 클라이언트가 SDP를 로컬에서 조립합니다. 서버-클라이언트 SDP 왕복이 없으므로 연결 시간이 단축됩니다.',
+        tag: 'arch',
+    },
+    {
+        title: 'Discord 스타일 Opcode → 플랫폼 독립',
+        detail: 'JSON {"op": N, "d": {...}} 형식으로 모든 시그널링을 통일합니다. 웹(JS), Android(Kotlin), 서버(Rust) 세 곳에서 동일한 opcode 정의를 공유합니다.',
+        tag: 'protocol',
+    },
+    {
+        title: '단일 UDP 포트 → 방화벽 친화적',
+        detail: 'STUN, DTLS, SRTP를 모두 하나의 UDP 포트(19740)에서 처리합니다. 첫 바이트 demux(RFC 5764)로 분류하므로 포트 1개만 열면 됩니다.',
+        tag: 'infra',
+    },
+    {
+        title: 'SO_REUSEPORT × N + per-subscriber egress → 멀티코어 활용',
+        detail: '수신은 커널 레벨 4-tuple hash로 N개 워커에 분산, 송신은 subscriber별 전용 task에서 독점 처리합니다. Mutex 경합 없는 lock-free 구조로 30인 loss 0%.',
+        tag: 'perf',
+    },
+    {
+        title: 'DashMap 3중 인덱스 → O(1) 조회',
+        detail: 'by_addr(SRTP hot path), by_ufrag(STUN cold path), by_user(시그널링) 세 경로 모두 O(1). fan-out 루프에서 조회 비용을 최소화합니다.',
+        tag: 'perf',
+    },
+    {
+        title: 'PTT Floor Control은 WS(TCP) 경로',
+        detail: 'UDP MBCP도 구현되어 있으나, libwebrtc PeerConnection에서 임의 RTCP APP 패킷 주입 API가 없어 WS 시그널링 경로를 주력으로 사용합니다. 발화권 결정은 10ms 이내면 충분하므로 TCP 지연이 문제되지 않습니다.',
+        tag: 'protocol',
+    },
+];
+
+const TAG_COLOR = {
+    infra: 'bg-green-500/15 text-green-400 border-green-500/30',
+    arch: 'bg-brand-cyan/10 text-brand-cyan border-brand-cyan/20',
+    protocol: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
+    perf: 'bg-brand-rust/10 text-brand-rust border-brand-rust/20',
+};
+
+document.getElementById('decisionCards').innerHTML = DECISIONS.map((d, i) => `
+    <div class="bg-brand-surface rounded-xl border border-slate-700/50 p-5">
+        <div class="flex items-center gap-3 mb-2">
+            <span class="text-xs font-mono px-2 py-0.5 rounded-full border ${TAG_COLOR[d.tag]}">${d.tag}</span>
+            <span class="text-white font-bold text-sm word-keep-all">${d.title}</span>
+        </div>
+        <p class="text-sm text-slate-400 word-keep-all pl-0 sm:pl-[68px]">${d.detail}</p>
+    </div>`
+).join('');
+</script>
+
+</body>
+</html>

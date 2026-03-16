@@ -1,0 +1,994 @@
+<!doctype html>
+<html lang="ko">
+  <!--
+  @author: kodeholic (powered by Claude)
+  @description: 0xLENS — Android SDK 탄생기: 7일간의 기록
+  @version: v1.0.0
+-->
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>0xLENS — Android SDK 탄생기</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["Pretendard", "sans-serif"],
+              mono: ["JetBrains Mono", "monospace"],
+            },
+            colors: {
+              brand: {
+                rust: "#E45B25",
+                cyan: "#00F0FF",
+                dark: "#0B0F19",
+                surface: "#151B2B",
+              },
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      body {
+        background-color: #0b0f19;
+        color: #e2e8f0;
+      }
+      .bg-grid {
+        background-size: 40px 40px;
+        background-image:
+          linear-gradient(
+            to right,
+            rgba(255, 255, 255, 0.03) 1px,
+            transparent 1px
+          ),
+          linear-gradient(
+            to bottom,
+            rgba(255, 255, 255, 0.03) 1px,
+            transparent 1px
+          );
+      }
+      .text-gradient {
+        background: linear-gradient(to right, #e45b25, #ff8a50);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      .text-gradient-cyan {
+        background: linear-gradient(to right, #00f0ff, #60a5fa);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      .text-gradient-green {
+        background: linear-gradient(to right, #22c55e, #4ade80);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      ::-webkit-scrollbar {
+        width: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #0b0f19;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #334155;
+        border-radius: 3px;
+      }
+      .word-keep-all {
+        word-break: keep-all;
+      }
+
+      /* Day cards */
+      .day-line {
+        position: absolute;
+        left: 23px;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+      }
+      .day-dot {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        position: absolute;
+        left: 17px;
+        z-index: 1;
+      }
+      .day-card {
+        transition: all 0.3s ease;
+      }
+      .day-card:hover {
+        border-color: rgba(0, 240, 255, 0.2);
+        transform: translateY(-1px);
+      }
+
+      /* Stats counter animation */
+      .stat-num {
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* Pivot marker */
+      .pivot-glow {
+        box-shadow:
+          0 0 30px rgba(228, 91, 37, 0.15),
+          0 0 60px rgba(228, 91, 37, 0.08);
+      }
+
+      /* Quote */
+      .quote-bar {
+        border-left: 3px solid #e45b25;
+      }
+
+      /* Feature grid hover */
+      .feat-card {
+        transition: all 0.2s ease;
+      }
+      .feat-card:hover {
+        border-color: rgba(0, 240, 255, 0.3);
+      }
+
+      /* Progress bar */
+      .progress-fill {
+        transition: width 1.5s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      .progress-enter {
+        width: 0 !important;
+      }
+    </style>
+  </head>
+  <body
+    class="bg-grid min-h-screen font-sans antialiased selection:bg-brand-rust selection:text-white"
+  >
+    <!-- Header -->
+    <header
+      class="sticky top-0 z-50 bg-brand-dark/90 backdrop-blur-md border-b border-white/10"
+    >
+      <div
+        class="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between"
+      >
+        <a href="../index.html" class="flex items-center gap-2">
+          <span class="font-mono text-xl font-extrabold tracking-tight">
+            <span class="text-brand-rust">0x</span
+            ><span class="text-white">LENS</span>
+          </span>
+          <span class="text-gray-600 text-xs font-mono">SDK Genesis</span>
+        </a>
+        <nav class="flex items-center gap-4 text-xs font-mono text-gray-500">
+          <a href="../index.html" class="hover:text-white transition"
+            >&larr; Home</a
+          >
+          <a href="./telemetry.html" class="hover:text-white transition"
+            >Telemetry</a
+          >
+          <a href="./benchmark.html" class="hover:text-white transition"
+            >Benchmark</a
+          >
+          <a
+            href="./postmortem-rust-android.html"
+            class="hover:text-white transition"
+            >Post-Mortem</a
+          >
+          <a href="./rx-tx-pipeline.html" class="hover:text-white transition"
+            >Pipeline</a
+          >
+        </nav>
+      </div>
+    </header>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- HERO -->
+    <!-- ═══════════════════════════════════════════ -->
+    <section class="max-w-5xl mx-auto px-4 sm:px-6 pt-12 sm:pt-20 pb-8">
+      <div
+        class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs font-mono text-brand-cyan mb-6"
+      >
+        <span class="w-2 h-2 rounded-full bg-brand-cyan"></span>
+        2026-03-09 ~ 03-15 · 7 Days · 13 Sessions · 1 Pivot
+      </div>
+      <h1
+        class="text-3xl sm:text-5xl font-extrabold text-white leading-tight mb-6 tracking-tight word-keep-all"
+      >
+        <span class="text-gradient">7일</span> 만에<br />
+        Android SDK가 <span class="text-gradient-cyan">태어났다</span>.
+      </h1>
+      <p
+        class="text-gray-400 text-base sm:text-lg leading-relaxed max-w-3xl word-keep-all"
+      >
+        Rust 코어 SDK 설계부터 시작해, 크로스 빌드 성공의 환희,
+        <strong class="text-white">SIGSEGV 한 줄에 무너진 이틀</strong>, 그리고
+        Kotlin으로의 전면 전환. 양방향 음성·영상, PTT Floor Control, Camera2,
+        Mute 3-state, TRACKS_ACK/RESYNC까지 —
+        <strong class="text-white">13개 세션, 수천 줄의 코드</strong>가 만든
+        기록.
+      </p>
+    </section>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- STATS BAR -->
+    <!-- ═══════════════════════════════════════════ -->
+    <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div
+          class="bg-brand-surface border border-brand-rust/30 rounded-xl p-4 text-center"
+        >
+          <div
+            class="text-2xl sm:text-3xl font-mono font-extrabold text-brand-rust stat-num"
+          >
+            13
+          </div>
+          <div class="text-xs text-gray-400 mt-1">개발 세션</div>
+        </div>
+        <div
+          class="bg-brand-surface border border-brand-cyan/30 rounded-xl p-4 text-center"
+        >
+          <div
+            class="text-2xl sm:text-3xl font-mono font-extrabold text-brand-cyan stat-num"
+          >
+            1
+          </div>
+          <div class="text-xs text-gray-400 mt-1">전면 전환 (Pivot)</div>
+        </div>
+        <div
+          class="bg-brand-surface border border-green-500/30 rounded-xl p-4 text-center"
+        >
+          <div
+            class="text-2xl sm:text-3xl font-mono font-extrabold text-green-400 stat-num"
+          >
+            3
+          </div>
+          <div class="text-xs text-gray-400 mt-1">SIGABRT 해결</div>
+        </div>
+        <div
+          class="bg-brand-surface border border-yellow-500/30 rounded-xl p-4 text-center"
+        >
+          <div
+            class="text-2xl sm:text-3xl font-mono font-extrabold text-yellow-400 stat-num"
+          >
+            20+
+          </div>
+          <div class="text-xs text-gray-400 mt-1">구현 기능</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- SECTION 1: PROLOGUE -->
+    <!-- ═══════════════════════════════════════════ -->
+    <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+      <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">
+        00 — PROLOGUE
+      </h2>
+      <h3 class="text-2xl font-bold mb-6 word-keep-all">
+        출발점: Rust 코어 하나로 전 플랫폼을
+      </h3>
+
+      <div
+        class="bg-brand-surface rounded-2xl p-6 border border-slate-700/50 mb-6"
+      >
+        <p class="text-slate-300 word-keep-all leading-relaxed mb-4">
+          서버는 이미 완성되어 있었다. Rust + Tokio + Axum으로 만든 SFU 서버는
+          라즈베리파이 한 대에서 30인 Conference를 loss 0.000%로 처리하고
+          있었다.
+        </p>
+        <p class="text-slate-300 word-keep-all leading-relaxed mb-4">
+          다음 목표는 명확했다 —
+          <strong class="text-white">Android에서 돌아가는 PTT SDK</strong>. Show
+          me the money.
+        </p>
+        <p class="text-slate-300 word-keep-all leading-relaxed">
+          처음 구상한 아키텍처는 아름다웠다.
+          <strong class="text-brand-cyan">Rust 코어 하나</strong>로 시그널링,
+          SDP 빌더, Floor Control을 구현하고, 플랫폼별 얇은 JNI/FFI 레이어만
+          씌우면 Android, iOS, Desktop 전부 커버할 수 있다. libwebrtc C++ 정적
+          라이브러리를 Rust cdylib 안에 static link하면 단일
+          <code class="text-cyan-400 font-mono text-sm">liboxlens_jni.so</code>
+          (20MB) 하나로 배포 완료.
+        </p>
+      </div>
+
+      <div class="quote-bar bg-brand-surface rounded-r-xl px-5 py-4">
+        <p class="text-slate-400 text-sm italic word-keep-all">
+          "Rust 코어 하나로 전 플랫폼" — 아름다운 비전이었다. 문제는, 아름다운
+          비전과 돌아가는 소프트웨어는 다른 것이라는 점이었다.
+        </p>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- SECTION 2: TIMELINE -->
+    <!-- ═══════════════════════════════════════════ -->
+    <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+      <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">
+        01 — TIMELINE
+      </h2>
+      <h3 class="text-2xl font-bold mb-8 word-keep-all">7일간의 기록</h3>
+
+      <div class="relative pl-12 space-y-6" id="dayTimeline">
+        <div
+          class="day-line bg-gradient-to-b from-green-500/60 via-red-500/60 via-60% to-green-500/60"
+        ></div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- SECTION 3: THE PIVOT -->
+    <!-- ═══════════════════════════════════════════ -->
+    <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+      <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">
+        02 — THE PIVOT
+      </h2>
+      <h3 class="text-2xl font-bold mb-6 word-keep-all">전환의 순간</h3>
+
+      <div
+        class="pivot-glow bg-brand-surface rounded-2xl p-6 border border-brand-rust/30 mb-6"
+      >
+        <div class="flex items-start gap-4 mb-6">
+          <div
+            class="w-12 h-12 rounded-full bg-brand-rust/20 flex items-center justify-center shrink-0"
+          >
+            <span class="text-2xl">⚡</span>
+          </div>
+          <div>
+            <h4 class="text-white font-bold text-lg mb-2">3월 14일, 오후</h4>
+            <p class="text-slate-300 word-keep-all leading-relaxed">
+              <code class="text-red-400 font-mono text-sm"
+                >signal 11 (SIGSEGV), fault addr 0x0</code
+              >
+              — System.loadLibrary() 한 줄에서 .so가 터졌다. libwebrtc C++
+              글로벌 생성자가 Rust compiler_builtins의 깨진
+              <code class="text-cyan-400">getauxval</code> stub을 호출하는
+              순간이었다.
+            </p>
+          </div>
+        </div>
+
+        <div class="grid md:grid-cols-3 gap-4 mb-6">
+          <div class="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
+            <div class="text-xs font-mono text-red-400 font-bold mb-2">
+              시도 A — 컴파일러 플래그
+            </div>
+            <p class="text-xs text-slate-400 word-keep-all">
+              <code>-Ctarget-feature=-outline-atomics</code><br />→ pre-compiled
+              std에 이미 심볼 포함. 무의미.
+            </p>
+          </div>
+          <div class="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
+            <div class="text-xs font-mono text-red-400 font-bold mb-2">
+              시도 B — C 함수 직접 제공
+            </div>
+            <p class="text-xs text-slate-400 word-keep-all">
+              <code>__getauxval()</code> 구현 제공<br />→ 링커 심볼 resolve 순서
+              문제로 무효.
+            </p>
+          </div>
+          <div
+            class="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4"
+          >
+            <div class="text-xs font-mono text-yellow-400 font-bold mb-2">
+              시도 C — Rust 다운그레이드
+            </div>
+            <p class="text-xs text-slate-400 word-keep-all">
+              1.88로 내리면 문제 자체가 사라짐.<br />→ 근본 해결이 아닌 회피.
+            </p>
+          </div>
+        </div>
+
+        <div class="bg-brand-dark/50 rounded-xl p-5 border border-white/5">
+          <h4 class="text-white font-bold mb-3">결정의 근거</h4>
+          <div class="space-y-2 text-sm text-slate-400 word-keep-all">
+            <div class="flex items-start gap-2">
+              <span class="text-brand-rust mt-0.5">▸</span>
+              <span
+                >LiveKit Android SDK —
+                <strong class="text-white">순수 Kotlin + Java API</strong>. Rust
+                cdylib를 Android에서 안 쓴다.</span
+              >
+            </div>
+            <div class="flex items-start gap-2">
+              <span class="text-brand-rust mt-0.5">▸</span>
+              <span
+                ><strong class="text-white"
+                  >Rust 1.93 + libwebrtc + Android cdylib</strong
+                >
+                조합을 시도한 팀이 세상에 거의 없다.</span
+              >
+            </div>
+            <div class="flex items-start gap-2">
+              <span class="text-brand-rust mt-0.5">▸</span>
+              <span
+                >Rx/Tx Pipeline 설계 8개 항목 중
+                <strong class="text-white"
+                  >6개가 Kotlin에서 그대로 적용 가능</strong
+                >.</span
+              >
+            </div>
+            <div class="flex items-start gap-2">
+              <span class="text-brand-rust mt-0.5">▸</span>
+              <span
+                >배터리 전략의 핵심은 FSM 설계 자체이지, 구현 언어가
+                아니다.</span
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="quote-bar bg-brand-surface rounded-r-xl px-5 py-4">
+        <p class="text-slate-400 text-sm italic word-keep-all">
+          설계의 아름다움에 끌려 현실을 무시하지 마라. 당장 필요한 건
+          Android에서 돌아가는 PTT SDK다. Show me the money.
+        </p>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- SECTION 4: AFTER PIVOT — 폭발적 진도 -->
+    <!-- ═══════════════════════════════════════════ -->
+    <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+      <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">
+        03 — AFTER THE PIVOT
+      </h2>
+      <h3 class="text-2xl font-bold mb-4 word-keep-all">
+        전환 후 48시간 — 폭발적 진도
+      </h3>
+      <p class="text-slate-400 mb-8 word-keep-all">
+        Kotlin + libwebrtc Java API로 전환한 뒤, 막혔던 모든 것이 풀렸다.
+        <strong class="text-white"
+          >이틀 만에 Rust 4일치 기능을 넘어섰다.</strong
+        >
+      </p>
+
+      <div class="grid md:grid-cols-2 gap-4 mb-8" id="featureGrid"></div>
+
+      <div class="bg-brand-surface rounded-2xl p-6 border border-green-500/20">
+        <h4 class="text-green-400 font-mono font-bold text-sm mb-4">
+          E2E 동작 확인 — 최종 상태
+        </h4>
+        <div
+          class="bg-brand-dark/50 rounded-xl p-4 font-mono text-xs text-slate-400 overflow-x-auto"
+        >
+          <div class="space-y-0.5 min-w-[400px]">
+            <div>
+              <span class="text-green-400">✓</span> Android: CAMERA+AUDIO
+              granted → connect → ROOM_CREATE → ROOM_JOIN
+            </div>
+            <div>
+              <span class="text-green-400">✓</span> server codecs: [opus, VP8] →
+              자동 카메라 초기화
+            </div>
+            <div>
+              <span class="text-green-400">✓</span> publish PC: 3 tracks (audio
+              + video + RTX) → ICE CONNECTED
+            </div>
+            <div>
+              <span class="text-green-400">✓</span> subscribe PC: remote tracks
+              수신 → ICE CONNECTED
+            </div>
+            <div>
+              <span class="text-green-400">✓</span> 양방향 음성: Android ↔
+              브라우저 청취 확인
+            </div>
+            <div>
+              <span class="text-green-400">✓</span> 양방향 영상: Camera2 → SFU →
+              브라우저 영상 수신
+            </div>
+            <div>
+              <span class="text-green-400">✓</span> PTT: TALK 길게 누름 →
+              FLOOR_REQUEST → Granted → 발화 → Release
+            </div>
+            <div>
+              <span class="text-green-400">✓</span> Mute 3-state: Conference
+              soft/hard + PTT audio 차단
+            </div>
+            <div>
+              <span class="text-green-400">✓</span> AudioSwitch: Speakerphone
+              우선, BT 지원
+            </div>
+            <div>
+              <span class="text-green-400">✓</span> TRACKS_ACK/RESYNC: subscribe
+              트랙 누락 복구 프로토콜
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- SECTION 5: CRASH STORIES -->
+    <!-- ═══════════════════════════════════════════ -->
+    <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+      <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">
+        04 — CRASH STORIES
+      </h2>
+      <h3 class="text-2xl font-bold mb-4 word-keep-all">
+        3개의 SIGABRT와 그 해결
+      </h3>
+      <p class="text-slate-400 mb-8 word-keep-all">
+        Kotlin 전환 후에도 libwebrtc 네이티브 크래시는 피할 수 없었다. Java API
+        위에서도 C++ 런타임은 자비 없이 죽었다.
+      </p>
+
+      <div class="space-y-4" id="crashCards"></div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- SECTION 6: SERVER EVOLUTION -->
+    <!-- ═══════════════════════════════════════════ -->
+    <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+      <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">
+        05 — SERVER EVOLUTION
+      </h2>
+      <h3 class="text-2xl font-bold mb-4 word-keep-all">
+        SDK가 서버를 진화시켰다
+      </h3>
+      <p class="text-slate-400 mb-8 word-keep-all">
+        Android 클라이언트가 실전에 투입되자, 서버도 따라서 성장해야 했다.
+        <strong class="text-white"
+          >7일 동안 서버에도 6개의 주요 기능이 추가되었다.</strong
+        >
+      </p>
+
+      <div class="space-y-3" id="serverFeatures"></div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- SECTION 7: NUMBERS -->
+    <!-- ═══════════════════════════════════════════ -->
+    <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
+      <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">
+        06 — BY THE NUMBERS
+      </h2>
+      <h3 class="text-2xl font-bold mb-8 word-keep-all">숫자로 보는 7일</h3>
+
+      <div class="space-y-4" id="progressBars"></div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- SECTION 8: LESSONS -->
+    <!-- ═══════════════════════════════════════════ -->
+    <section class="max-w-5xl mx-auto px-4 sm:px-6 pb-20">
+      <h2 class="font-mono text-brand-rust text-sm tracking-widest mb-2">
+        07 — LESSONS
+      </h2>
+      <h3 class="text-2xl font-bold mb-8 word-keep-all">이 7일이 남긴 것</h3>
+
+      <div class="space-y-4" id="lessonCards"></div>
+
+      <div
+        class="mt-10 bg-brand-surface rounded-2xl p-6 border border-brand-rust/20"
+      >
+        <p class="text-slate-300 word-keep-all leading-relaxed text-center">
+          완벽한 설계보다
+          <strong class="text-white">돌아가는 소프트웨어</strong>가 먼저다.<br />
+          삽질은 <strong class="text-white">자산</strong>이다 — "왜 안 되는지"를
+          정확히 아는 것의 가치.<br />
+          <strong class="text-brand-rust">선례를 먼저 찾아라.</strong> 아무도 안
+          해본 조합에는 이유가 있다.<br /><br />
+          <span class="font-mono text-brand-rust text-lg font-extrabold"
+            >Show me the money.</span
+          >
+        </p>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer
+      class="max-w-5xl mx-auto px-6 py-8 border-t border-slate-800 text-center text-slate-600 text-xs font-mono"
+    >
+      <span class="text-brand-rust">0x</span
+      ><span class="text-white">LENS</span> — Android SDK Genesis &nbsp;|&nbsp;
+      2026-03-09 ~ 03-15 &nbsp;|&nbsp; author: kodeholic (powered by Claude)
+    </footer>
+
+    <!-- ═══════════════════════════════════════════ -->
+    <!-- DATA + RENDER -->
+    <!-- ═══════════════════════════════════════════ -->
+    <script>
+      // author: kodeholic (powered by Claude)
+
+      /* ═══════ TIMELINE ═══════ */
+      const DAYS = [
+        {
+          date: "3/9",
+          label: "Day 1",
+          color: "green",
+          title: "Rust 코어 SDK — SDP 빌더 + 오케스트레이터 완성",
+          items: [
+            "Cargo workspace 3-crate 구조 셋업, webrtc-sys 빌드 성공",
+            "oxlens-core 시그널링: WS 연결, opcode 디스패치, HELLO→IDENTIFY→HEARTBEAT",
+            "SDP 빌더 Rust 포팅 — JS sdp-builder.js → Rust 7함수, 9 tests passed",
+            "MediaSession (PeerConnection 관리) + OxLensClient 오케스트레이터",
+          ],
+          verdict: "Rust 코어 설계 완성. 서버 E2E 연동 직전 상태.",
+        },
+        {
+          date: "3/11",
+          label: "Day 3",
+          color: "green",
+          title: "bench E2E 전체 통과 + PTT Floor 검증",
+          items: [
+            "bench ROOM_CREATE + 2PC 미디어 E2E 연동 성공",
+            "PTT Floor Control 전체 시나리오 4건 올패스",
+            "OxLensClient 접근자 리팩터링 (media_mut/signal)",
+          ],
+          verdict: "Rust SDK가 서버와 완전 연동. 자신감 최고조.",
+        },
+        {
+          date: "3/12",
+          label: "Day 4",
+          color: "green",
+          title: "JNI 스캐폴딩 + Arc 핸들 리팩터링",
+          items: [
+            "OxLensClient Arc 핸들 리팩터링, subscribe on_track 검증",
+            "oxlens-jni crate 생성, OxLensClient.kt / OxLensEventListener.kt 설계",
+            "Kotlin JNI 브릿지 아키텍처 확정",
+          ],
+          verdict: "Android 진입 준비 완료. 크로스 빌드만 남았다.",
+        },
+        {
+          date: "3/14 오전",
+          label: "Day 6-AM",
+          color: "green",
+          title: "Android 크로스 빌드 — 성공!",
+          items: [
+            "OpenSSL→rustls 전환, webrtc-sys 0.2/0.3 충돌 해결",
+            "libunwind 우회, NDK sysroot 패치",
+            "liboxlens_jni.so 20MB aarch64 생성 완료",
+          ],
+          verdict: "빌드 성공! .so 파일이 생겼다.",
+        },
+        {
+          date: "3/14 오후",
+          label: "Day 6-PM",
+          color: "red",
+          title: "💥 SIGSEGV — getauxval null deref",
+          items: [
+            "System.loadLibrary() 즉시 크래시 — .so constructor 단계",
+            "Rust 1.93 outline-atomics + libwebrtc C++ 글로벌 생성자 충돌",
+            "시도 A, B 모두 실패. C(다운그레이드)는 회피책.",
+            "★ 전환 결정: Rust FFI → Kotlin + libwebrtc Java API",
+          ],
+          verdict: "THE PIVOT. Rust 5일간의 작업을 접고 Kotlin으로 전환.",
+        },
+        {
+          date: "3/14 저녁",
+          label: "Day 6-EVE",
+          color: "cyan",
+          title: "Kotlin SDK Phase 1 — Publish + Subscribe E2E",
+          items: [
+            "SignalClient + SdpBuilder + MediaSession Kotlin 포팅",
+            "Publish ICE CONNECTED — 오디오 발신 성공",
+            "Subscribe SIGABRT 해결 — VideoCodecFactory 미설정 발견",
+            "양방향 음성 E2E: Android ↔ 브라우저",
+          ],
+          verdict: "전환 당일에 양방향 음성까지. Rust 4일치를 반나절에.",
+        },
+        {
+          date: "3/14 심야",
+          label: "Day 6-LATE",
+          color: "cyan",
+          title: "PTT + Mute + Camera2 + 데모앱 전면 개편",
+          items: [
+            "FloorFsm.kt 전면 구현 (IDLE→REQUESTING→GRANTED→RELEASING)",
+            "Mute 3-state: Conference soft/hard + PTT audio 차단",
+            "Camera2 비디오 E2E (Android → SFU → 브라우저)",
+            "RTX SSRC 필터링 + Home UI 미러 데모앱",
+          ],
+          verdict: "Conference 영상 + PTT 음성, 하루 만에 전부 동작.",
+        },
+        {
+          date: "3/15",
+          label: "Day 7",
+          color: "green",
+          title: "서버 진단 + 안정성 하드닝",
+          items: [
+            "서버 relay counter 추가 (네트워크 vs gate loss 분리)",
+            "RTX budget per-subscriber 폭풍 방지",
+            "TRACKS_ACK/RESYNC 프로토콜 — 서버 + 웹 + Android 전체 구현",
+            "Subscribe re-nego 직렬화 (경합 조건 해소)",
+            "AudioSwitch, 오디오 장치 열거/선택, 카메라 전/후면 전환",
+          ],
+          verdict: "안정성 하드닝 완료. 실전 투입 준비 상태.",
+        },
+      ];
+
+      const DOT_COLOR = {
+        green: "bg-green-500",
+        red: "bg-red-500",
+        cyan: "bg-brand-cyan",
+      };
+      const BORDER_COLOR = {
+        green: "border-green-500/20",
+        red: "border-red-500/30",
+        cyan: "border-brand-cyan/20",
+      };
+
+      document.getElementById("dayTimeline").innerHTML += DAYS.map(
+        (d, i) => `
+    <div class="relative">
+        <div class="day-dot ${DOT_COLOR[d.color]} border-2 border-brand-dark" style="top:6px"></div>
+        <div class="day-card bg-brand-surface rounded-xl border ${BORDER_COLOR[d.color]} p-5">
+            <div class="flex items-center gap-3 mb-3">
+                <span class="text-xs font-mono text-slate-500">${d.date}</span>
+                <span class="text-xs font-mono px-2 py-0.5 rounded-full ${d.color === "red" ? "bg-red-500/15 text-red-400 border border-red-500/30" : d.color === "cyan" ? "bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/20" : "bg-green-500/15 text-green-400 border border-green-500/30"}">${d.label}</span>
+            </div>
+            <h4 class="font-bold text-white mb-3 word-keep-all">${d.title}</h4>
+            <div class="space-y-1.5 mb-4">
+                ${d.items.map((item) => `<div class="flex gap-2 text-sm text-slate-400 word-keep-all"><span class="text-slate-600 shrink-0 mt-0.5">▸</span><span>${item}</span></div>`).join("")}
+            </div>
+            <div class="text-xs font-mono ${d.color === "red" ? "text-red-400" : d.color === "cyan" ? "text-brand-cyan" : "text-green-400"} font-bold">→ ${d.verdict}</div>
+        </div>
+    </div>`,
+      ).join("");
+
+      /* ═══════ FEATURE GRID ═══════ */
+      const FEATURES = [
+        {
+          icon: "🎙",
+          name: "양방향 음성",
+          desc: "Android ↔ SFU ↔ 브라우저 오디오 E2E",
+        },
+        {
+          icon: "📹",
+          name: "Camera2 비디오",
+          desc: "자동 코덱 감지, 전/후면 전환, SurfaceViewRenderer",
+        },
+        {
+          icon: "🔇",
+          name: "Mute 3-state",
+          desc: "Conference soft/hard + PTT 발화권 연동 mute",
+        },
+        {
+          icon: "📡",
+          name: "PTT Floor Control",
+          desc: "FloorFsm 전체 (IDLE→REQUESTING→GRANTED→RELEASING)",
+        },
+        {
+          icon: "🔊",
+          name: "AudioSwitch",
+          desc: "Speakerphone 우선, Bluetooth/유선 자동 전환",
+        },
+        {
+          icon: "🔄",
+          name: "TRACKS_ACK/RESYNC",
+          desc: "Subscribe 트랙 누락 탐지 + 자동 복구 프로토콜",
+        },
+        {
+          icon: "📊",
+          name: "서버 Relay Counter",
+          desc: "네트워크 loss vs gate loss 분리 진단",
+        },
+        {
+          icon: "🛡",
+          name: "RTX Budget",
+          desc: "Per-subscriber RTX 폭풍 방지 (200/3초)",
+        },
+      ];
+
+      document.getElementById("featureGrid").innerHTML = FEATURES.map(
+        (f) => `
+    <div class="feat-card bg-brand-surface rounded-xl border border-slate-700/50 p-4 flex items-start gap-3">
+        <span class="text-xl shrink-0">${f.icon}</span>
+        <div>
+            <div class="text-white font-bold text-sm">${f.name}</div>
+            <div class="text-xs text-slate-400 mt-0.5 word-keep-all">${f.desc}</div>
+        </div>
+    </div>`,
+      ).join("");
+
+      /* ═══════ CRASH STORIES ═══════ */
+      const CRASHES = [
+        {
+          title: "Subscribe PC — front() called on empty vector",
+          symptom: "setRemoteDescription 직후 SIGABRT (C++ worker_thread)",
+          cause:
+            "PeerConnectionFactory에 VideoCodecFactory 미설정 → video m-line에서 빈 코덱 벡터 접근",
+          fix: "SoftwareVideoEncoderFactory + SoftwareVideoDecoderFactory 추가",
+          debug:
+            "extmap 필터링, RTX PT 제거, addTransceiver 등 모두 실패 → audio-only로 video 원인 특정",
+        },
+        {
+          title: "Publish PC — EglBase 컨텍스트 충돌",
+          symptom: "카메라 초기화 후 인코더에서 SIGABRT",
+          cause:
+            "Camera2, VideoEncoder, SurfaceViewRenderer가 각각 다른 EglBase 사용",
+          fix: "단일 EglBase.create() 인스턴스를 전체에 공유",
+          debug: "DefaultVideoEncoderFactory + HW 가속으로 전환 시 해소",
+        },
+        {
+          title: "NetworkMonitor — getConnectivityManager NPE",
+          symptom: "PeerConnection 생성 시 간헐적 SIGABRT",
+          cause:
+            "libwebrtc 내부 NetworkMonitor가 Context 없이 시스템 서비스 접근",
+          fix: "PeerConnectionFactory.Options에 disableNetworkMonitor = true",
+          debug: "AndroidNetworkMonitor 비활성화로 문제 원천 차단",
+        },
+      ];
+
+      document.getElementById("crashCards").innerHTML = CRASHES.map(
+        (c, i) => `
+    <div class="bg-brand-surface rounded-xl border border-red-500/20 p-5">
+        <div class="flex items-center gap-3 mb-3">
+            <span class="text-xs font-mono px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/30">CRASH #${i + 1}</span>
+            <span class="text-white font-bold text-sm">${c.title}</span>
+        </div>
+        <div class="grid sm:grid-cols-2 gap-4 text-sm">
+            <div>
+                <div class="text-xs font-mono text-red-400 mb-1">증상</div>
+                <p class="text-slate-400 word-keep-all">${c.symptom}</p>
+            </div>
+            <div>
+                <div class="text-xs font-mono text-brand-cyan mb-1">근본 원인</div>
+                <p class="text-slate-400 word-keep-all">${c.cause}</p>
+            </div>
+            <div>
+                <div class="text-xs font-mono text-green-400 mb-1">수정</div>
+                <p class="text-slate-400 word-keep-all">${c.fix}</p>
+            </div>
+            <div>
+                <div class="text-xs font-mono text-yellow-400 mb-1">디버깅</div>
+                <p class="text-slate-400 word-keep-all">${c.debug}</p>
+            </div>
+        </div>
+    </div>`,
+      ).join("");
+
+      /* ═══════ SERVER FEATURES ═══════ */
+      const SERVER_FEATS = [
+        {
+          name: "Relay Counter",
+          desc: "ingress_rtp_received, egress_rtp_relayed — 네트워크 vs gate loss 분리 진단",
+          file: "ingress.rs",
+        },
+        {
+          name: "RTX Budget",
+          desc: "Per-subscriber RTX_BUDGET_PER_3S=200, 초과 시 RTX drop → 연쇄 장애 차단",
+          file: "config.rs, participant.rs, ingress.rs",
+        },
+        {
+          name: "TRACKS_ACK (op=16)",
+          desc: "클라이언트가 subscribe 트랙 목록을 서버에 확인 응답",
+          file: "handler.rs",
+        },
+        {
+          name: "TRACKS_RESYNC (op=106)",
+          desc: "서버가 불일치 감지 시 전체 트랙 목록 재전송",
+          file: "handler.rs, room.rs",
+        },
+        {
+          name: "rtx_sent 위치 수정",
+          desc: "budget 체크 후 카운트 → nack_requested = sent + exceeded + miss 공식 성립",
+          file: "ingress.rs",
+        },
+        {
+          name: "PTT 버그 2건",
+          desc: "FLOOR_TAKEN 필드명 수정 (user_id→speaker), pttVirtualSsrc 미전달 수정",
+          file: "floor.rs, handler.rs",
+        },
+      ];
+
+      document.getElementById("serverFeatures").innerHTML = SERVER_FEATS.map(
+        (f) => `
+    <div class="flex items-center gap-4 bg-brand-surface border border-white/5 rounded-lg px-4 py-3">
+        <div class="w-8 h-8 rounded-full bg-brand-rust/15 flex items-center justify-center shrink-0">
+            <span class="text-brand-rust text-xs font-mono font-bold">SFU</span>
+        </div>
+        <div class="flex-1 min-w-0">
+            <div class="text-sm text-white font-medium">${f.name}</div>
+            <div class="text-[10px] text-slate-500 font-mono mt-0.5 word-keep-all">${f.desc}</div>
+        </div>
+        <div class="text-[10px] text-slate-600 font-mono shrink-0 hidden sm:block">${f.file}</div>
+    </div>`,
+      ).join("");
+
+      /* ═══════ PROGRESS BARS ═══════ */
+      const PROGRESS = [
+        {
+          label: "Rust 코어 세션 (Phase 1)",
+          value: 5,
+          max: 13,
+          color: "bg-brand-rust",
+          unit: "세션",
+        },
+        {
+          label: "Kotlin 전환 후 세션 (Phase 2~4)",
+          value: 8,
+          max: 13,
+          color: "bg-brand-cyan",
+          unit: "세션",
+        },
+        {
+          label: "E2E 기능 구현",
+          value: 20,
+          max: 20,
+          color: "bg-green-500",
+          unit: "항목",
+        },
+        {
+          label: "libwebrtc 크래시 해결",
+          value: 3,
+          max: 3,
+          color: "bg-red-500",
+          unit: "건",
+        },
+        {
+          label: "서버 기능 추가",
+          value: 6,
+          max: 6,
+          color: "bg-yellow-500",
+          unit: "항목",
+        },
+        {
+          label: "폐기된 Rust crate",
+          value: 3,
+          max: 4,
+          color: "bg-slate-500",
+          unit: "crate",
+        },
+      ];
+
+      document.getElementById("progressBars").innerHTML = PROGRESS.map((p) => {
+        const pct = ((p.value / p.max) * 100).toFixed(0);
+        return `<div class="flex items-center gap-3">
+        <div class="w-48 sm:w-56 text-right text-xs font-mono text-gray-500 shrink-0">${p.label}</div>
+        <div class="flex-1 relative h-7 bg-white/5 rounded overflow-hidden">
+            <div class="progress-fill progress-enter absolute inset-y-0 left-0 ${p.color}/70 rounded" style="width:${pct}%"></div>
+            <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-mono text-gray-400">${p.value}/${p.max} ${p.unit}</span>
+        </div>
+    </div>`;
+      }).join("");
+
+      /* ═══════ LESSONS ═══════ */
+      const LESSONS = [
+        {
+          num: "①",
+          title: "선례를 먼저 찾아라",
+          text: '크로스 바운더리 조합을 시도하기 전에 "이미 성공한 팀이 있는가"를 확인한다. 없으면 "왜 안 했는가"를 파악한다. LiveKit이 Rust + Android cdylib를 안 쓰는 데는 이유가 있었다.',
+        },
+        {
+          num: "②",
+          title: "설계의 아름다움에 끌려 현실을 무시하지 마라",
+          text: '"Rust 코어 하나로 전 플랫폼"은 아름다운 비전이지만, 당장 필요한 건 Android에서 돌아가는 PTT SDK다. 경계를 넘는 비용은 기하급수적이다.',
+        },
+        {
+          num: "③",
+          title: "삽질은 자산이다",
+          text: 'Rust FFI 경험에서 확인한 것: libwebrtc AAR + Java API가 안전한 경로, Rx/Tx Pipeline 설계가 언어 무관, 배터리 전략의 핵심은 FSM. "왜 안 되는지"를 정확히 이해하고 넘어간 건 향후 의사결정의 자산.',
+        },
+        {
+          num: "④",
+          title: "전환을 두려워하지 마라",
+          text: "5일간의 작업을 접는 결정은 쉽지 않다. 하지만 전환 당일에 양방향 음성이 동작했고, 이틀 만에 Rust 4일치를 넘어섰다. 빠른 전환이 빠른 회복을 만든다.",
+        },
+        {
+          num: "⑤",
+          title: "libwebrtc는 자비가 없다",
+          text: "Java API 위에서도 C++ 런타임은 SIGABRT로 죽는다. CodecFactory 하나 빠뜨려도, EglBase 컨텍스트가 불일치해도, NetworkMonitor가 Context 없이 접근해도. tombstone과 addr2line이 일상이 된다.",
+        },
+      ];
+
+      document.getElementById("lessonCards").innerHTML = LESSONS.map(
+        (l) => `
+    <div class="quote-bar bg-brand-surface rounded-r-xl p-5">
+        <h4 class="font-bold text-white mb-2">${l.num} ${l.title}</h4>
+        <p class="text-sm text-slate-400 word-keep-all">${l.text}</p>
+    </div>`,
+      ).join("");
+
+      /* ═══════ ANIMATE BARS ═══════ */
+      setTimeout(() => {
+        document
+          .querySelectorAll(".progress-enter")
+          .forEach((el) => el.classList.remove("progress-enter"));
+      }, 400);
+    </script>
+  </body>
+</html>
