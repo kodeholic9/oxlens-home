@@ -196,9 +196,9 @@ export function buildContractChecks() {
     detail: `${m?.sr_relayed || 0} in 3s`,
   });
   checks.push({
-    name: "rr_relay",
-    pass: m && (m.rr_relayed || 0) > 0,
-    detail: `${m?.rr_relayed || 0} in 3s`,
+    name: "rr_generated",
+    pass: m && (m.rr_generated || 0) > 0,
+    detail: `${m?.rr_generated || 0} in 3s`,
   });
 
   const nR = m?.nack_received || 0,
