@@ -10,6 +10,7 @@ import {
   resetAllState,
   pushUserSnapshot, pushSfuSnapshot,
   pipelineRing, SNAPSHOT_RING_SIZE,
+  aggLogRing,
 } from "./state.js";
 import { renderRoomList, renderOverview } from "./render-overview.js";
 import { renderDetail, renderSdpPanel } from "./render-detail.js";
@@ -230,6 +231,10 @@ function handleAdminMessage(msg) {
       renderServerMetrics();
       break;
 
+    case "agg_log":
+      handleAggLog(msg);
+      break;
+
     default:
       console.log("[ADMIN] unknown msg type:", msg.type);
   }
@@ -320,11 +325,24 @@ function handleClientTelemetry(msg) {
 }
 
 // ============================================================
+//  AggLog 수신 → ring buffer (3초×20 = 1분치)
+// ============================================================
+function handleAggLog(msg) {
+  aggLogRing.push({
+    ts: msg.ts || Date.now(),
+    entries: msg.entries || [],
+  });
+  while (aggLogRing.length > SNAPSHOT_RING_SIZE) aggLogRing.shift();
+}
+
+// ============================================================
 //  Pipeline Stats → delta 계산 + ring buffer
 // ============================================================
 const PIPELINE_FIELDS = [
   "pub_rtp_in", "pub_rtp_gated", "pub_rtp_rewritten", "pub_video_pending",
+  "pub_pli_received",
   "sub_rtp_relayed", "sub_rtp_dropped", "sub_sr_relayed",
+  "sub_nack_sent", "sub_rtx_received",
 ];
 
 function processPipeline(pipeline, ts) {

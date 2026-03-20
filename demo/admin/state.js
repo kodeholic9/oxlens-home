@@ -45,6 +45,9 @@ export const serverEventLog = [];
 // key: "room_id:user_id", value: { ring: [{ts, ...counters}], prev: {...} }
 export const pipelineRing = new Map();
 
+// AggLogger ring buffer (3초×20 = 1분치)
+export const aggLogRing = [];
+
 // ============================================================
 //  상태 변경 함수 (let 바인딩은 직접 export 재할당 불가이므로 setter 제공)
 // ============================================================
@@ -112,4 +115,5 @@ export function resetAllState() {
   roomCreatedAtMap.clear();
   serverEventLog.length = 0;
   pipelineRing.clear();
+  aggLogRing.length = 0;
 }

@@ -4,7 +4,7 @@
 import {
   $, latestTelemetry, sdpTelemetry, latestServerMetrics,
   joinedAtMap, roomCreatedAtMap, eventHistory, serverEventLog,
-  fmtElapsed, pipelineRing,
+  fmtElapsed, pipelineRing, aggLogRing,
 } from "./state.js";
 import { buildContractChecks } from "./render-panels.js";
 import { sfuEventDescription, eventDescriptionExport } from "./render-detail.js";
@@ -284,16 +284,34 @@ export function buildSnapshot() {
       const elapsed = latest.since ? fmtElapsed(Date.now() - latest.since) : "?";
       const activeSince = latest.activeSince ? new Date(latest.activeSince).toISOString() : "?";
       L.push(`[${latest.userId}@${latest.roomId.substring(0, 8)}] since=${since} (${elapsed}) room_active=${activeSince}`);
-      L.push(`  [pub] in=${latest.pub_rtp_in}(+${latest.pub_rtp_in_d}) gated=${latest.pub_rtp_gated}(+${latest.pub_rtp_gated_d}) rewritten=${latest.pub_rtp_rewritten}(+${latest.pub_rtp_rewritten_d}) vid_pending=${latest.pub_video_pending}(+${latest.pub_video_pending_d})`);
-      L.push(`  [sub] relayed=${latest.sub_rtp_relayed}(+${latest.sub_rtp_relayed_d}) dropped=${latest.sub_rtp_dropped}(+${latest.sub_rtp_dropped_d}) sr=${latest.sub_sr_relayed}(+${latest.sub_sr_relayed_d})`);
-      // 최근 20슬롯 delta 추이 (pub_rtp_in_d, sub_rtp_relayed_d)
+      L.push(`  [pub] in=${latest.pub_rtp_in}(+${latest.pub_rtp_in_d}) gated=${latest.pub_rtp_gated}(+${latest.pub_rtp_gated_d}) rewritten=${latest.pub_rtp_rewritten}(+${latest.pub_rtp_rewritten_d}) vid_pending=${latest.pub_video_pending}(+${latest.pub_video_pending_d}) pli=${latest.pub_pli_received}(+${latest.pub_pli_received_d})`);
+      L.push(`  [sub] relayed=${latest.sub_rtp_relayed}(+${latest.sub_rtp_relayed_d}) dropped=${latest.sub_rtp_dropped}(+${latest.sub_rtp_dropped_d}) sr=${latest.sub_sr_relayed}(+${latest.sub_sr_relayed_d}) nack=${latest.sub_nack_sent}(+${latest.sub_nack_sent_d}) rtx=${latest.sub_rtx_received}(+${latest.sub_rtx_received_d})`);
+      // 최근 20슬롯 delta 추이
       if (ring.length > 1) {
         L.push(`  [trend:pub_in]  ${ring.map(e => e.pub_rtp_in_d).join(",")}`);
         L.push(`  [trend:sub_rel] ${ring.map(e => e.sub_rtp_relayed_d).join(",")}`);
+        L.push(`  [trend:pub_pli] ${ring.map(e => e.pub_pli_received_d).join(",")}`);
+        L.push(`  [trend:sub_nack] ${ring.map(e => e.sub_nack_sent_d).join(",")}`);
       }
     });
   } else {
     L.push("(no pipeline data)");
+  }
+  L.push("");
+
+  // --- AGG LOG (3초×20 = 1분치 집계 로그) ---
+  L.push("--- AGG LOG ---");
+  if (aggLogRing.length > 0) {
+    aggLogRing.forEach((slot) => {
+      if (!slot.entries || slot.entries.length === 0) return;
+      const t = new Date(slot.ts).toISOString();
+      slot.entries.forEach((e) => {
+        const room = e.room_id ? `room=${e.room_id.substring(0, 8)}` : "global";
+        L.push(`[${t}] ${e.label} ×${e.count} (${e.delta_ms}ms) [${room}]`);
+      });
+    });
+  } else {
+    L.push("(no agg data)");
   }
   L.push("");
 
