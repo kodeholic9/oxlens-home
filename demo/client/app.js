@@ -30,6 +30,10 @@ const remoteStreams = new Map();
 
 const remoteAudio = $("remote-audio");
 
+// Simulcast
+const _manualLayerOverride = new Set();
+let _longPressTimer = null;
+
 // ============================================================
 //  Util
 // ============================================================
@@ -341,6 +345,8 @@ function bindSdkEvents(s) {
       renderConfGrid(d.participants || []);
       // 타일 생성 후 저장된 remote stream 연결 시도
       tryAttachRemoteVideo();
+      // Simulcast: 초기 레이어 분배
+      redistributeTiles();
     }
     // 장치 목록 갱신 (getUserMedia 후라 label 노출됨)
     updateDeviceSelects(sdk.getDevices());
@@ -398,10 +404,12 @@ function bindSdkEvents(s) {
       }
       // 새 타일 추가 후 저장된 remote stream 연결 시도
       tryAttachRemoteVideo();
+      redistributeTiles();
     }
     if (type === "participant_left") {
       log("sys", `${uid} 퇴장`);
       remoteStreams.delete(uid);
+      _manualLayerOverride.delete(uid);
       // audio element 정리
       const audioEl = document.querySelector(`audio[data-uid="${uid}"]`);
       if (audioEl) {
@@ -1264,6 +1272,78 @@ $("user-id").value = `U${String(Math.floor(Math.random() * 1000)).padStart(3, "0
   }
 })();
 log("sys", `Light LiveChat 클라이언트 준비 완료 (SDK v${SDK_VERSION})`);
+
+// ============================================================
+//  Simulcast: 레이어 선택 + long-press 팝업
+// ============================================================
+
+/** 타일 레이아웃에 따른 레이어 재분배 (Phase 3 기본형) */
+function redistributeTiles() {
+  if (!sdk || !sdk._simulcastEnabled) return;
+  const grid = $("conf-grid");
+  if (!grid) return;
+  const tiles = grid.querySelectorAll(".conf-tile:not(.is-me)");
+  if (tiles.length === 0) return;
+
+  const targets = [];
+  tiles.forEach(tile => {
+    const uid = tile.dataset.uid;
+    if (!uid || _manualLayerOverride.has(uid)) return;
+    targets.push({ user_id: uid, rid: "h" }); // 기본: 모든 타일 h
+  });
+  if (targets.length > 0) {
+    sdk.sig.subscribeLayer(targets);
+  }
+}
+
+/** Long-press 레이어 선택 팝업 (simulcast 디버그용) */
+function showLayerPopup(tile) {
+  const uid = tile.dataset.uid;
+  if (!uid) return;
+  document.querySelector(".layer-popup")?.remove();
+
+  const popup = document.createElement("div");
+  popup.className = "layer-popup absolute z-50 bg-brand-surface border border-white/20 rounded-lg p-2 shadow-xl flex gap-2";
+  popup.style.cssText = "top:50%;left:50%;transform:translate(-50%,-50%);";
+
+  ["h", "l", "pause"].forEach(rid => {
+    const btn = document.createElement("button");
+    btn.className = "px-4 py-2 rounded text-sm font-mono font-bold transition-colors " +
+      (rid === "h" ? "bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/30" :
+       rid === "l" ? "bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 border border-yellow-500/30" :
+       "bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30");
+    btn.textContent = rid === "pause" ? "PAUSE" : rid.toUpperCase();
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      sdk.sig.subscribeLayer([{ user_id: uid, rid }]);
+      _manualLayerOverride.add(uid);
+      popup.remove();
+      log("sys", `[SIM] layer=${rid} for ${uid} (manual)`);
+    };
+    popup.appendChild(btn);
+  });
+
+  tile.style.position = "relative";
+  tile.appendChild(popup);
+  setTimeout(() => popup.remove(), 4000);
+}
+
+// conf-grid long-press 이벤트 위임
+// pointerdown → 브라우저 드래그 시작 방지 (video element의 draggable 기본값 때문에 pointercancel 발생)
+$("conf-grid").addEventListener("pointerdown", (e) => {
+  const tile = e.target.closest(".conf-tile");
+  if (!tile || tile.classList.contains("is-me")) return;
+  if (!sdk || !sdk._simulcastEnabled) return;
+  e.preventDefault(); // 브라우저 드래그 방지 → pointercancel 방지
+  clearTimeout(_longPressTimer);
+  _longPressTimer = setTimeout(() => showLayerPopup(tile), 800);
+});
+$("conf-grid").addEventListener("pointerup", () => clearTimeout(_longPressTimer));
+$("conf-grid").addEventListener("pointercancel", () => clearTimeout(_longPressTimer));
+$("conf-grid").addEventListener("pointermove", () => clearTimeout(_longPressTimer)); // 드래그 의도 → 팝업 취소
+$("conf-grid").addEventListener("contextmenu", (e) => {
+  if (sdk?._simulcastEnabled) e.preventDefault();
+});
 
 // ============================================================
 //  PWA Service Worker 등록

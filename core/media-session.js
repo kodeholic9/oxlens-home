@@ -3,15 +3,15 @@
 //
 // 책임:
 //   - 미디어 스트림 획득 (getUserMedia)
-//   - Publish PeerConnection 생성 + SDP 협상
+//   - Publish PeerConnection 생성 + SDP 협상 (client-offer)
 //   - Subscribe PeerConnection 생성 + re-negotiation
 //   - 트랙 목록 관리 (mid 할당, active/inactive)
-//   - SSRC 추출 + PUBLISH_TRACKS 전송
+//   - SSRC 추출 (getStats 폴링) + PUBLISH_TRACKS 전송
 //   - 카메라 전환
 //   - WebRTC teardown
 
 import {
-  buildPublishRemoteSdp,
+  buildPublishRemoteAnswer,
   buildSubscribeRemoteSdp,
   updateSubscribeRemoteSdp,
   validateSdp,
@@ -38,6 +38,10 @@ export class MediaSession {
     // Subscribe PC re-negotiation 직렬화 큐
     // 동시에 여러 TRACKS_UPDATE가 도착해도 순차 처리
     this._subPcQueue = Promise.resolve();
+
+    // Phase 1: Simulcast 지원
+    this._simulcastEnabled = false;
+    this._pendingPublishTracks = false;
   }
 
   // ── Getters ──
@@ -106,6 +110,11 @@ export class MediaSession {
 
     // Phase E-5: PTT subscribe SDP용 옵션 저장
     this._sdpOptions = options || null;
+
+    // Simulcast: ROOM_JOIN 응답의 simulcast.enabled
+    this._simulcastEnabled = options?.simulcastEnabled || false;
+    console.log(`[MEDIA] simulcast=${this._simulcastEnabled}`);
+
     if (this._sdpOptions?.pttVirtualSsrc) {
       console.log("[MEDIA] PTT virtual SSRC:", JSON.stringify(this._sdpOptions.pttVirtualSsrc));
     }
@@ -113,11 +122,11 @@ export class MediaSession {
     console.log("[MEDIA] server_config received:", JSON.stringify(serverConfig, null, 2));
     console.log("[MEDIA] initial tracks:", tracks);
 
-    // 1. Publish PC
+    // 1. Publish PC (client-offer)
     await this._setupPublishPc();
     // 2. Subscribe PC
     await this._setupSubscribePc();
-    // 3. PUBLISH_TRACKS → 서버에 SSRC 등록
+    // 3. PUBLISH_TRACKS → 서버에 SSRC 등록 (getStats 폴링, fire-and-forget)
     this._sendPublishTracks();
   }
 
@@ -207,7 +216,16 @@ export class MediaSession {
   }
 
   // ============================================================
-  //  Publish PC — 내 미디어 → 서버
+  //  Publish PC — 내 미디어 → 서버 (client-offer 방식)
+  //
+  //  협상 순서:
+  //    addTransceiver(sendonly) → createOffer → DTX munging
+  //    → setLocalDescription(offer)
+  //    → buildPublishRemoteAnswer(server_config, offer)
+  //    → setRemoteDescription(answer)
+  //
+  //  simulcast ON: sendEncodings [{rid:'h',...},{rid:'l',...}]
+  //  simulcast OFF: sendEncodings 없이 addTransceiver(sendonly)
   // ============================================================
 
   async _setupPublishPc() {
@@ -217,19 +235,33 @@ export class MediaSession {
       return;
     }
 
-    console.log("[MEDIA] creating publish PC");
+    console.log(`[MEDIA] creating publish PC (client-offer, simulcast=${this._simulcastEnabled})`);
     this._pubPc = new RTCPeerConnection({ iceServers: [], iceTransportPolicy: "all" });
 
-    // addTrack
+    // ── addTransceiver (sendonly) — addTrack() 사용 금지 (direction sendrecv 문제) ──
     if (this._stream) {
       const audioTrack = this._stream.getAudioTracks()[0];
-      if (audioTrack) this._audioSender = this._pubPc.addTrack(audioTrack, this._stream);
+      if (audioTrack) {
+        const audioTx = this._pubPc.addTransceiver(audioTrack, { direction: "sendonly" });
+        this._audioSender = audioTx.sender;
+      }
+
       const videoTrack = this._stream.getVideoTracks()[0];
-      if (videoTrack) this._videoSender = this._pubPc.addTrack(videoTrack, this._stream);
+      if (videoTrack) {
+        const txOpts = { direction: "sendonly" };
+        if (this._simulcastEnabled) {
+          txOpts.sendEncodings = [
+            { rid: "h", maxBitrate: 1_650_000 },
+            { rid: "l", maxBitrate: 250_000, scaleResolutionDownBy: 4 },
+          ];
+        }
+        const videoTx = this._pubPc.addTransceiver(videoTrack, txOpts);
+        this._videoSender = videoTx.sender;
+      }
     }
 
-    // 비트레이트 제한: 서버 지정값 우선, 없으면 클라이언트 기본값
-    if (this._videoSender) {
+    // 비트레이트 제한 (simulcast OFF일 때만 — ON이면 sendEncodings에서 처리)
+    if (this._videoSender && !this._simulcastEnabled) {
       try {
         const params = this._videoSender.getParameters();
         if (params.encodings && params.encodings.length > 0) {
@@ -244,10 +276,16 @@ export class MediaSession {
       } catch (_) { /* ignore */ }
     }
 
-    // ICE logging
+    // ── ICE logging ──
     this._pubPc.oniceconnectionstatechange = () => {
       console.log(`[DBG:ICE] pub iceConnectionState=${this._pubPc.iceConnectionState}`);
       this.sdk.emit("media:ice", { pc: "publish", state: this._pubPc.iceConnectionState });
+      // connected 시점에 pending publish tracks 재시도
+      if (this._pubPc.iceConnectionState === "connected" && this._pendingPublishTracks) {
+        this._pendingPublishTracks = false;
+        console.log("[MEDIA] ICE connected → retrying PUBLISH_TRACKS");
+        this._sendPublishTracks();
+      }
     };
     this._pubPc.onconnectionstatechange = () => {
       console.log(`[DBG:ICE] pub connectionState=${this._pubPc.connectionState}`);
@@ -259,29 +297,30 @@ export class MediaSession {
       if (e.candidate) console.log(`[DBG:ICE] pub local candidate: ${e.candidate.candidate}`);
     };
 
-    // Fake remote SDP
-    const remoteSdp = buildPublishRemoteSdp(sc);
-    console.log("[MEDIA] publish remote SDP:");
-    remoteSdp.split("\r\n").forEach((l) => l && console.log(`  ${l}`));
+    // ── Client-offer SDP 협상 ──
+    const offer = await this._pubPc.createOffer();
 
-    const v = validateSdp(remoteSdp);
-    if (!v.valid) console.error("[MEDIA] publish SDP validation failed:", v.errors);
-
-    await this._pubPc.setRemoteDescription({ type: "offer", sdp: remoteSdp });
-    console.log("[MEDIA] pub setRemoteDescription OK");
-
-    const answer = await this._pubPc.createAnswer();
-
-    // DTX 활성화
-    const mungedSdp = answer.sdp.replace(/(a=fmtp:\d+ [^\r\n]+)/g, (line) => {
+    // DTX 활성화 (offer SDP에 적용 — client-offer이므로 offer가 local)
+    const mungedSdp = offer.sdp.replace(/(a=fmtp:\d+ [^\r\n]+)/g, (line) => {
       if (!/usedtx/.test(line)) return line + ";usedtx=1";
       return line.replace(/usedtx=\d/, "usedtx=1");
     });
 
-    await this._pubPc.setLocalDescription({ type: answer.type, sdp: mungedSdp });
-    console.log("[MEDIA] pub setLocalDescription OK");
-    console.log("[MEDIA] pub answer SDP:");
+    await this._pubPc.setLocalDescription({ type: "offer", sdp: mungedSdp });
+    console.log("[MEDIA] pub setLocalDescription (offer) OK");
+    console.log("[MEDIA] pub offer SDP:");
     mungedSdp.split("\r\n").forEach((l) => l && console.log(`  ${l}`));
+
+    // Fake answer: server_config + Chrome offer의 extmap ID 사용
+    const answerSdp = buildPublishRemoteAnswer(sc, mungedSdp, this._simulcastEnabled);
+    console.log("[MEDIA] pub remote answer SDP:");
+    answerSdp.split("\r\n").forEach((l) => l && console.log(`  ${l}`));
+
+    const v = validateSdp(answerSdp);
+    if (!v.valid) console.error("[MEDIA] publish answer SDP validation failed:", v.errors);
+
+    await this._pubPc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+    console.log("[MEDIA] pub setRemoteDescription (answer) OK");
   }
 
   // ============================================================
@@ -356,28 +395,107 @@ export class MediaSession {
   }
 
   // ============================================================
-  //  PUBLISH_TRACKS → 서버에 SSRC 등록
+  //  PUBLISH_TRACKS → 서버에 SSRC 등록 (getStats 폴링)
+  //
+  //  Chrome offerer는 SDP/getParameters 모두에서 simulcast SSRC 미노출.
+  //  getStats() outbound-rtp가 유일한 추출 경로.
+  //  200ms 간격 폴링, 최대 15회(3초). 실패 시 ICE connected에서 재시도.
   // ============================================================
 
-  _sendPublishTracks() {
+  async _sendPublishTracks() {
     if (!this._pubPc) return;
+    try {
+      const tracks = await this._extractPublishTracks();
+      if (tracks.length === 0) {
+        console.warn("[MEDIA] no publish tracks extracted, will retry on ICE connected");
+        this._pendingPublishTracks = true;
+        return;
+      }
 
-    const tracks = [];
-    const senders = this._pubPc.getSenders();
+      // twcc_extmap_id: Chrome offer SDP에서 추출
+      const offerSdp = this._pubPc.localDescription?.sdp || "";
+      const twccExtmapId = this._parseTwccExtmapId(offerSdp);
 
-    for (const sender of senders) {
-      if (!sender.track) continue;
-      const localSdp = this._pubPc.localDescription?.sdp || "";
-      const ssrc = this.extractSsrcFromSdp(localSdp, sender.track.kind);
-      if (ssrc) {
-        tracks.push({ kind: sender.track.kind, ssrc });
-        console.log(`[MEDIA] publish track: kind=${sender.track.kind} ssrc=${ssrc}`);
+      const payload = { tracks };
+      if (twccExtmapId != null) payload.twcc_extmap_id = twccExtmapId;
+
+      console.log("[MEDIA] PUBLISH_TRACKS:", JSON.stringify(payload));
+      this.sdk.sig.send(OP.PUBLISH_TRACKS, payload);
+    } catch (e) {
+      console.error("[MEDIA] _sendPublishTracks error:", e);
+      this._pendingPublishTracks = true;
+    }
+  }
+
+  /**
+   * getStats() 폴링으로 outbound-rtp에서 SSRC 추출.
+   *
+   * simulcast ON:  audio(1) + video h(1) + video l(1) = 3개 기대
+   * simulcast OFF: audio(1) + video(1) = 2개 기대
+   * audio-only:    audio(1) = 1개 기대
+   *
+   * @returns {Promise<Array<{kind, ssrc, rid?}>>}
+   */
+  async _extractPublishTracks() {
+    const MAX_RETRIES = 15;
+    const RETRY_MS = 200;
+
+    const hasVideo = (this._stream?.getVideoTracks()?.length || 0) > 0;
+    const hasAudio = (this._stream?.getAudioTracks()?.length || 0) > 0;
+    const expectedVideo = hasVideo ? (this._simulcastEnabled ? 2 : 1) : 0;
+    const expectedAudio = hasAudio ? 1 : 0;
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      const tracks = await this._getOutboundTracks();
+
+      const videoCount = tracks.filter((t) => t.kind === "video").length;
+      const audioCount = tracks.filter((t) => t.kind === "audio").length;
+
+      if (audioCount >= expectedAudio && videoCount >= expectedVideo) {
+        console.log(`[MEDIA] publish tracks extracted (attempt ${attempt + 1}/${MAX_RETRIES}):`, JSON.stringify(tracks));
+        return tracks;
+      }
+
+      if (attempt < MAX_RETRIES - 1) {
+        console.log(`[MEDIA] waiting for publish tracks... (attempt ${attempt + 1}, audio=${audioCount}/${expectedAudio}, video=${videoCount}/${expectedVideo})`);
+        await new Promise((r) => setTimeout(r, RETRY_MS));
       }
     }
 
-    if (tracks.length > 0) {
-      this.sdk.sig.send(OP.PUBLISH_TRACKS, { tracks });
-    }
+    // 최대 재시도 초과 — 있는 만큼이라도 반환
+    const fallback = await this._getOutboundTracks();
+    console.warn(`[MEDIA] publish track extraction timeout after ${MAX_RETRIES} attempts, got ${fallback.length} tracks`);
+    return fallback;
+  }
+
+  /**
+   * getStats()에서 outbound-rtp 항목 추출.
+   * @returns {Promise<Array<{kind, ssrc, rid?}>>}
+   */
+  async _getOutboundTracks() {
+    const stats = await this._pubPc.getStats();
+    const tracks = [];
+    stats.forEach((report) => {
+      if (report.type !== "outbound-rtp" || !report.ssrc) return;
+      // RTX(rtxSsrc) 제외 — Chrome은 RTX도 outbound-rtp로 보고할 수 있음
+      if (report.encoderImplementation === undefined && report.kind === "video" && report.bytesSent === 0) return;
+      const entry = { kind: report.kind, ssrc: report.ssrc };
+      if (report.rid) entry.rid = report.rid;
+      tracks.push(entry);
+    });
+    return tracks;
+  }
+
+  /**
+   * Chrome offer SDP에서 TWCC extmap ID 추출.
+   * a=extmap:5 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01
+   * @returns {number|null}
+   */
+  _parseTwccExtmapId(sdp) {
+    const match = sdp.match(
+      /a=extmap:(\d+)\s+http:\/\/www\.ietf\.org\/id\/draft-holmer-rmcat-transport-wide-cc-extensions-01/
+    );
+    return match ? parseInt(match[1], 10) : null;
   }
 
   // ============================================================
@@ -452,5 +570,7 @@ export class MediaSession {
     this._subscribeTracks = [];
     this._nextMid = 0;
     this._subPcQueue = Promise.resolve();
+    this._simulcastEnabled = false;
+    this._pendingPublishTracks = false;
   }
 }

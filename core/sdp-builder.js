@@ -92,6 +92,135 @@ export function buildPublishRemoteSdp(serverConfig) {
 }
 
 /**
+ * publish PC용 remote answer SDP 생성 (client-offer 방식)
+ *
+ * Chrome이 offerer, 서버가 answerer.
+ * Chrome offer의 extmap URI→ID 매핑을 파싱해서 answer에 그대로 사용.
+ * simulcast ON이면 rid/simulcast 라인 포함.
+ *
+ * SDP 협상 순서:
+ *   createOffer → setLocalDescription(offer)
+ *   → buildPublishRemoteAnswer(server_config, offer) ← 이 함수
+ *   → setRemoteDescription("answer")
+ *
+ * @param {Object} serverConfig - ROOM_JOIN 응답의 server_config
+ * @param {string} chromeOfferSdp - Chrome createOffer()로 생성된 SDP
+ * @param {boolean} simulcastEnabled - simulcast 활성화 여부
+ * @returns {string} SDP answer 문자열
+ */
+export function buildPublishRemoteAnswer(serverConfig, chromeOfferSdp, simulcastEnabled) {
+  const { ice, dtls, codecs, extmap: serverExtmap } = serverConfig;
+
+  // Chrome offer에서 m-section 파싱
+  const offerSections = chromeOfferSdp.split(/(?=^m=)/m).filter((s) => s.startsWith("m="));
+
+  // Chrome offer의 BUNDLE mids 추출
+  const bundleMatch = chromeOfferSdp.match(/a=group:BUNDLE\s+(.+)/);
+  const bundleMids = bundleMatch ? bundleMatch[1].trim().split(/\s+/) : [];
+
+  // Server가 지원하는 extmap URI set (answer에 포함할 항목 필터링용)
+  const serverUriSet = new Set((serverExtmap || []).map((e) => e.uri));
+
+  const answerSections = [];
+
+  for (const section of offerSections) {
+    const kindMatch = section.match(/^m=(\w+)/);
+    if (!kindMatch) continue;
+    const kind = kindMatch[1];
+
+    // Chrome offer에서 mid 추출
+    const midMatch = section.match(/a=mid:(\S+)/);
+    const mid = midMatch ? midMatch[1] : String(answerSections.length);
+
+    // Chrome offer에서 extmap 추출 (URI → ID 매핑)
+    // answer에서는 Chrome이 할당한 ID를 그대로 사용해야 SRTP 파싱이 정상 동작
+    const offerExtmaps = [];
+    const extmapRegex = /a=extmap:(\d+)(?:\/\S+)?\s+(\S+)/gm;
+    let em;
+    while ((em = extmapRegex.exec(section)) !== null) {
+      offerExtmaps.push({ id: parseInt(em[1], 10), uri: em[2] });
+    }
+
+    // server가 지원하는 extmap만 answer에 포함
+    const filteredExtmaps = offerExtmaps.filter((e) => serverUriSet.has(e.uri));
+
+    // server_config에서 이 kind의 코덱
+    const trackCodecs = codecs.filter((c) => c.kind === kind);
+    if (trackCodecs.length === 0) continue;
+
+    // PT 목록
+    const pts = [];
+    for (const c of trackCodecs) {
+      pts.push(c.pt);
+      if (c.rtx_pt != null) pts.push(c.rtx_pt);
+    }
+
+    let sdp = "";
+
+    // m= line
+    sdp += `m=${kind} ${ice.port} UDP/TLS/RTP/SAVPF ${pts.join(" ")}\r\n`;
+    sdp += `c=IN IP4 ${ice.ip}\r\n`;
+
+    // ICE (publish 자격증명)
+    sdp += `a=ice-ufrag:${ice.publish_ufrag}\r\n`;
+    sdp += `a=ice-pwd:${ice.publish_pwd}\r\n`;
+
+    // DTLS — answer에서는 passive (서버가 DTLS server 역할 유지)
+    sdp += `a=fingerprint:${dtls.fingerprint}\r\n`;
+    sdp += "a=setup:passive\r\n";
+
+    // mid (Chrome offer의 mid 그대로)
+    sdp += `a=mid:${mid}\r\n`;
+    sdp += "a=rtcp-mux\r\n";
+    if (kind === "video") sdp += "a=rtcp-rsize\r\n";
+
+    // direction: recvonly (서버가 받는 쪽)
+    sdp += "a=recvonly\r\n";
+
+    // codecs: rtpmap + fmtp + rtcp-fb
+    for (const c of trackCodecs) {
+      if (kind === "audio" && c.channels && c.channels > 1) {
+        sdp += `a=rtpmap:${c.pt} ${c.name}/${c.clockrate}/${c.channels}\r\n`;
+      } else {
+        sdp += `a=rtpmap:${c.pt} ${c.name}/${c.clockrate}\r\n`;
+      }
+      if (c.fmtp) sdp += `a=fmtp:${c.pt} ${c.fmtp}\r\n`;
+      if (c.rtcp_fb) {
+        for (const fb of c.rtcp_fb) {
+          sdp += `a=rtcp-fb:${c.pt} ${fb}\r\n`;
+        }
+      }
+      if (c.rtx_pt != null) {
+        sdp += `a=rtpmap:${c.rtx_pt} rtx/${c.clockrate}\r\n`;
+        sdp += `a=fmtp:${c.rtx_pt} apt=${c.pt}\r\n`;
+      }
+    }
+
+    // extmap — Chrome offer의 ID 사용, server 지원 URI만 포함
+    for (const ext of filteredExtmaps) {
+      sdp += `a=extmap:${ext.id} ${ext.uri}\r\n`;
+    }
+
+    // simulcast (video only)
+    if (kind === "video" && simulcastEnabled) {
+      sdp += "a=rid:h recv\r\n";
+      sdp += "a=rid:l recv\r\n";
+      sdp += "a=simulcast:recv h;l\r\n";
+    }
+
+    // ICE candidate
+    sdp += `a=candidate:1 1 udp 2113937151 ${ice.ip} ${ice.port} typ host generation 0\r\n`;
+    sdp += "a=end-of-candidates\r\n";
+
+    answerSections.push({ mid, sdp });
+  }
+
+  // BUNDLE: Chrome offer의 mids 그대로 사용
+  const finalBundleMids = bundleMids.length > 0 ? bundleMids : [answerSections[0]?.mid || "0"];
+  return buildSessionHeader(finalBundleMids) + answerSections.map((s) => s.sdp).join("");
+}
+
+/**
  * subscribe PC용 remote SDP 생성 (서버 = sendonly offer × N)
  *
  * 브라우저는 이 offer에 대해 recvonly answer를 만든다.

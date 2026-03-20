@@ -99,6 +99,9 @@ export class OxLensClient extends EventEmitter {
     this._pttTimers = { audio: null, video: null };
     this._userVideoOff = false;
 
+    // Simulcast
+    this._simulcastEnabled = false;
+
     // PTT: floor 전이 → 자동 미디어 제어 (SDK 내부 바인딩)
     this._bindPttMediaControl();
   }
@@ -547,6 +550,7 @@ export class OxLensClient extends EventEmitter {
     this._pttTimers = { audio: null, video: null };
     this._pttTrackState = { audio: "live", video: "live" };
     this._userVideoOff = false;
+    this._simulcastEnabled = false;
   }
 
   // ════════════════════════════════════════════════════════════
@@ -555,15 +559,18 @@ export class OxLensClient extends EventEmitter {
 
   /** signaling._handleResponse(ROOM_JOIN) → 여기로 */
   async _onJoinOk(d) {
-    const { server_config, tracks, participants, mode, ptt_virtual_ssrc } = d;
+    const { server_config, tracks, participants, mode, ptt_virtual_ssrc, simulcast } = d;
 
     if (!server_config) {
       this.emit("error", { code: 4001, msg: "server_config missing in ROOM_JOIN response" });
       return;
     }
 
+    // Simulcast 플래그 저장
+    this._simulcastEnabled = !!(simulcast && simulcast.enabled);
+
     try {
-      await this.media.setup(server_config, tracks, { mode, pttVirtualSsrc: ptt_virtual_ssrc });
+      await this.media.setup(server_config, tracks, { mode, pttVirtualSsrc: ptt_virtual_ssrc, simulcastEnabled: this._simulcastEnabled });
     } catch (e) {
       console.error("[SDK] 2PC setup failed:", e);
       this.emit("error", { code: 4002, msg: `2PC setup failed: ${e.message}` });

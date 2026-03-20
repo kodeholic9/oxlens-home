@@ -4,7 +4,7 @@
 // 여러 모듈(signaling, media-session, telemetry, livechat-sdk)이 공유하는 상수.
 // 순환 의존 방지를 위해 독립 파일로 분리.
 
-export const SDK_VERSION = "0.6.3";
+export const SDK_VERSION = "0.7.0";
 
 // ============================================================
 //  Opcodes — light-livechat signaling protocol (2PC/SDP-free)
@@ -31,6 +31,10 @@ export const OP = Object.freeze({
   FLOOR_REQUEST: 40,
   FLOOR_RELEASE: 41,
   FLOOR_PING: 42,
+
+  // Polling & Simulcast
+  ROOM_SYNC: 50,             // 참여자+트랙+floor 전체 동기화
+  SUBSCRIBE_LAYER: 51,       // Simulcast 레이어 선택
 
   // Server → Client (Event)
   ROOM_EVENT: 100,

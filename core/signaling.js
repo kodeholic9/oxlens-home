@@ -277,6 +277,10 @@ export class Signaling {
       case OP.FLOOR_PING:
         break;
 
+      case OP.SUBSCRIBE_LAYER:
+        console.log("[SIG] subscribe_layer ack");
+        break;
+
       default:
         this.sdk.emit("ack", { op, d });
     }
@@ -315,6 +319,16 @@ export class Signaling {
     this._setFloorState(FLOOR.REQUESTING);
     this.send(OP.FLOOR_REQUEST, { room_id: roomId });
     this.sdk.emit("floor:pending");
+  }
+
+  /**
+   * Simulcast 레이어 선택 (Phase 3)
+   * @param {Array<{user_id: string, rid: string}>} targets
+   */
+  subscribeLayer(targets) {
+    if (!targets || targets.length === 0) return;
+    this.send(OP.SUBSCRIBE_LAYER, { targets });
+    console.log(`[SIG] SUBSCRIBE_LAYER sent: ${targets.map(t => `${t.user_id}=${t.rid}`).join(", ")}`);
   }
 
   /**
