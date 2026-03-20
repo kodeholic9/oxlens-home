@@ -9,7 +9,7 @@ import {
   setRoomsSnapshot, setSelectedRoom, setSelectedUser, setLatestServerMetrics,
   resetAllState,
   pushUserSnapshot, pushSfuSnapshot,
-  pipelineRing, SNAPSHOT_RING_SIZE,
+  pipelineRing, snapshotRing, SNAPSHOT_RING_SIZE,
   aggLogRing,
 } from "./state.js";
 import { renderRoomList, renderOverview } from "./render-overview.js";
@@ -156,21 +156,55 @@ function setConnUI(state) {
 // ============================================================
 function handleAdminMessage(msg) {
   switch (msg.type) {
-    case "snapshot":
+    case "snapshot": {
       setRoomsSnapshot(msg.rooms || []);
-      // 입장 시각 / 방 생성 시각 업데이트
+
+      // 활성 유저/방 셋 구성
+      const activeUsers = new Set();
+      const activeRooms = new Set();
       (msg.rooms || []).forEach((room) => {
+        activeRooms.add(room.room_id);
         if (room.created_at)
           roomCreatedAtMap.set(room.room_id, room.created_at);
         (room.participants || []).forEach((p) => {
+          activeUsers.add(p.user_id);
           if (p.joined_at && !joinedAtMap.has(p.user_id)) {
             joinedAtMap.set(p.user_id, p.joined_at);
           }
         });
       });
+
+      // 좀비 데이터 정리: 퇴장한 유저/방 Map 엔트리 삭제
+      for (const uid of latestTelemetry.keys()) {
+        if (!activeUsers.has(uid)) latestTelemetry.delete(uid);
+      }
+      for (const uid of sdpTelemetry.keys()) {
+        if (!activeUsers.has(uid)) sdpTelemetry.delete(uid);
+      }
+      for (const uid of joinedAtMap.keys()) {
+        if (!activeUsers.has(uid)) joinedAtMap.delete(uid);
+      }
+      for (const uid of eventHistory.keys()) {
+        if (!activeUsers.has(uid)) eventHistory.delete(uid);
+      }
+      for (const uid of telemetryHistory.keys()) {
+        if (!activeUsers.has(uid)) telemetryHistory.delete(uid);
+      }
+      for (const roomId of roomCreatedAtMap.keys()) {
+        if (!activeRooms.has(roomId)) roomCreatedAtMap.delete(roomId);
+      }
+      for (const key of pipelineRing.keys()) {
+        const roomId = key.split(":")[0];
+        if (!activeRooms.has(roomId)) pipelineRing.delete(key);
+      }
+      for (const uid of snapshotRing.keys()) {
+        if (!activeUsers.has(uid)) snapshotRing.delete(uid);
+      }
+
       renderRoomList();
       renderOverview();
       break;
+    }
 
     case "client_telemetry":
       handleClientTelemetry(msg);

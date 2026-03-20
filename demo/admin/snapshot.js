@@ -5,6 +5,7 @@ import {
   $, latestTelemetry, sdpTelemetry, latestServerMetrics,
   joinedAtMap, roomCreatedAtMap, eventHistory, serverEventLog,
   fmtElapsed, pipelineRing, aggLogRing,
+  selectedRoom, roomsSnapshot,
 } from "./state.js";
 import { buildContractChecks } from "./render-panels.js";
 import { sfuEventDescription, eventDescriptionExport } from "./render-detail.js";
@@ -17,10 +18,25 @@ export function buildSnapshot() {
   const L = [];
   L.push("=== OXLENS-SFU TELEMETRY SNAPSHOT ===");
   L.push(`timestamp: ${ts}`);
+
+  // 방 필터: selectedRoom이 있으면 해당 방 참가자만
+  const targetUsers = new Set();
+  let roomLabel = "(all rooms)";
+  if (selectedRoom) {
+    const room = roomsSnapshot.find((r) => r.room_id === selectedRoom);
+    if (room) {
+      room.participants.forEach((p) => targetUsers.add(p.user_id));
+      const modeBadge = room.mode === "ptt" ? " PTT" : "";
+      roomLabel = `${room.name}${modeBadge} (${room.room_id.substring(0, 8)}…) ${room.participants.length}/${room.capacity}`;
+    }
+  }
+  const skip = (uid) => targetUsers.size > 0 && !targetUsers.has(uid);
+  L.push(`room: ${roomLabel}`);
   L.push("");
 
   L.push("--- SDP STATE ---");
   sdpTelemetry.forEach((sdp, uid) => {
+    if (skip(uid)) return;
     (sdp.pub_mline_summary || []).forEach((m) =>
       L.push(
         `[${uid}:pub] mid=${m.mid} ${m.kind} ${m.direction} ${m.codec || "?"} pt=${m.pt} ssrc=${m.ssrc}`,
@@ -36,6 +52,7 @@ export function buildSnapshot() {
 
   L.push("--- ENCODER/DECODER ---");
   latestTelemetry.forEach((tel, uid) => {
+    if (skip(uid)) return;
     (tel.codecs || []).forEach((c) => {
       const impl = c.encoderImpl || c.decoderImpl || "?",
         hw = c.powerEfficient === true ? "Y" : "N";
@@ -50,21 +67,32 @@ export function buildSnapshot() {
 
   L.push("--- SESSION INFO ---");
   latestTelemetry.forEach((tel, uid) => {
+    if (skip(uid)) return;
     const joinedAt = joinedAtMap.get(uid);
     const elapsed = joinedAt ? fmtElapsed(Date.now() - joinedAt) : "?";
     const joinedIso = joinedAt ? new Date(joinedAt).toISOString() : "?";
     L.push(`[${uid}] joined_at=${joinedIso} elapsed=${elapsed}`);
   });
-  roomCreatedAtMap.forEach((createdAt, roomId) => {
-    const roomElapsed = fmtElapsed(Date.now() - createdAt);
-    L.push(
-      `[room:${roomId.substring(0, 8)}…] created_at=${new Date(createdAt).toISOString()} elapsed=${roomElapsed}`,
-    );
-  });
+  if (selectedRoom) {
+    // 선택된 방만
+    const createdAt = roomCreatedAtMap.get(selectedRoom);
+    if (createdAt) {
+      const roomElapsed = fmtElapsed(Date.now() - createdAt);
+      L.push(`[room:${selectedRoom.substring(0, 8)}…] created_at=${new Date(createdAt).toISOString()} elapsed=${roomElapsed}`);
+    }
+  } else {
+    roomCreatedAtMap.forEach((createdAt, roomId) => {
+      const roomElapsed = fmtElapsed(Date.now() - createdAt);
+      L.push(
+        `[room:${roomId.substring(0, 8)}…] created_at=${new Date(createdAt).toISOString()} elapsed=${roomElapsed}`,
+      );
+    });
+  }
   L.push("");
 
   L.push("--- PUBLISH (3s window) ---");
   latestTelemetry.forEach((tel, uid) => {
+    if (skip(uid)) return;
     (tel.publish?.outbound || []).forEach((ob) => {
       const bps = ob.bitrate != null ? Math.round(ob.bitrate / 1000) : "?";
       const tgt = ob.targetBitrate ? Math.round(ob.targetBitrate) : "?";
@@ -104,6 +132,7 @@ export function buildSnapshot() {
 
   L.push("--- SUBSCRIBE (3s window) ---");
   latestTelemetry.forEach((tel, uid) => {
+    if (skip(uid)) return;
     (tel.subscribe?.inbound || []).forEach((ib) => {
       const src = ib.sourceUser ? `←${ib.sourceUser}` : "";
       const bps = ib.bitrate != null ? Math.round(ib.bitrate / 1000) : "?";
@@ -128,6 +157,7 @@ export function buildSnapshot() {
 
   L.push("--- NETWORK ---");
   latestTelemetry.forEach((tel, uid) => {
+    if (skip(uid)) return;
     if (tel.publish?.network)
       L.push(
         `[${uid}:pub] rtt=${tel.publish.network.rtt ?? "?"}ms available_bitrate=${tel.publish.network.availableBitrate ?? "?"}`,
@@ -141,12 +171,13 @@ export function buildSnapshot() {
   L.push("--- LOSS CROSS-REFERENCE ---");
   const sfu = latestServerMetrics;
   latestTelemetry.forEach((tel, uid) => {
+    if (skip(uid)) return;
     const pubByKind = {};
     (tel.publish?.outbound || []).forEach((ob) => {
       pubByKind[ob.kind] = ob;
     });
     latestTelemetry.forEach((otherTel, otherUid) => {
-      if (otherUid === uid) return;
+      if (otherUid === uid || skip(otherUid)) return;
       (otherTel.subscribe?.inbound || []).forEach((ib) => {
         if (ib.sourceUser !== uid || !pubByKind[ib.kind]) return;
         const pub = pubByKind[ib.kind];
@@ -180,6 +211,7 @@ export function buildSnapshot() {
   {
     const allEvents = [];
     eventHistory.forEach((events, uid) => {
+      if (skip(uid)) return;
       events.forEach((ev) => allEvents.push({ ...ev, _uid: uid, _src: "CLI" }));
     });
     serverEventLog.forEach((ev) =>
@@ -202,6 +234,7 @@ export function buildSnapshot() {
 
   L.push("--- PTT DIAGNOSTICS ---");
   latestTelemetry.forEach((tel, uid) => {
+    if (skip(uid)) return;
     const p = tel.ptt;
     if (!p) return;
     const pts = p.pttTrackState || {};
@@ -280,6 +313,8 @@ export function buildSnapshot() {
       const ring = state.ring;
       if (ring.length === 0) return;
       const latest = ring[ring.length - 1];
+      // 방 필터: selectedRoom이 있으면 해당 방만
+      if (selectedRoom && latest.roomId !== selectedRoom) return;
       const since = latest.since ? new Date(latest.since).toISOString() : "?";
       const elapsed = latest.since ? fmtElapsed(Date.now() - latest.since) : "?";
       const activeSince = latest.activeSince ? new Date(latest.activeSince).toISOString() : "?";
@@ -306,6 +341,8 @@ export function buildSnapshot() {
       if (!slot.entries || slot.entries.length === 0) return;
       const t = new Date(slot.ts).toISOString();
       slot.entries.forEach((e) => {
+        // 방 필터: selectedRoom이 있으면 해당 방 + global만
+        if (selectedRoom && e.room_id && e.room_id !== selectedRoom) return;
         const room = e.room_id ? `room=${e.room_id.substring(0, 8)}` : "global";
         L.push(`[${t}] ${e.label} ×${e.count} (${e.delta_ms}ms) [${room}]`);
       });
