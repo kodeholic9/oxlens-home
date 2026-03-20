@@ -143,7 +143,15 @@ export class MediaSession {
         if (existing) {
           Object.assign(existing, t, { active: true });
         } else {
-          this._subscribeTracks.push({ ...t, active: true, mid: String(this._nextMid++) });
+          // inactive m-line 재활용: 같은 kind의 inactive entry가 있으면 mid 재사용 (SDP 비대화 방지)
+          const recyclable = this._subscribeTracks.find(
+            (st) => st.active === false && st.kind === t.kind
+          );
+          if (recyclable) {
+            Object.assign(recyclable, t, { active: true }); // mid 유지, 나머지 교체
+          } else {
+            this._subscribeTracks.push({ ...t, active: true, mid: String(this._nextMid++) });
+          }
         }
       }
     } else if (action === "remove") {
@@ -151,7 +159,7 @@ export class MediaSession {
         const existing = this._subscribeTracks.find((st) => st.track_id === t.track_id);
         if (existing) {
           existing.active = false;
-          // mid는 유지! 절대 제거 안 함
+          // mid는 유지! 절대 제거 안 함 (WebRTC SDP m-line 삭제 불가)
         }
       }
     }

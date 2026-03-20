@@ -391,12 +391,16 @@ function processPipeline(pipeline, ts) {
       const state = pipelineRing.get(key);
 
       // delta 계산: 현재 누적값 - 이전 누적값
+      // 재입장 시 카운터 리셋 → 음수 delta 방지 (prev 초기화)
       const entry = { ts, roomId, userId, since: counters.since, activeSince };
+      const prevSince = state.prev?.since ?? 0;
+      const counterReset = prevSince && counters.since && counters.since !== prevSince;
+      if (counterReset) state.prev = null;
       for (const f of PIPELINE_FIELDS) {
         const cur = counters[f] ?? 0;
         const prev = state.prev ? (state.prev[f] ?? 0) : 0;
         entry[f] = cur;              // 누적 (total)
-        entry[f + "_d"] = cur - prev; // delta (3s window)
+        entry[f + "_d"] = Math.max(0, cur - prev); // delta (음수 클램프)
       }
       state.prev = { ...counters };
 
@@ -506,9 +510,11 @@ setConnUI("offline");
   let match = "";
   if (host === "127.0.0.1" || host === "localhost") {
     match = "ws://127.0.0.1:1974/admin/ws";
+  } else if (host === "192.168.0.25") {
+    match = "ws://192.168.0.25:1974/admin/ws";
   } else if (host === "192.168.0.29") {
     match = "ws://192.168.0.29:1974/admin/ws";
-  } else if (host.includes("oxlens.com")) {
+  }else if (host.includes("oxlens.com")) {
     match = "wss://www.oxlens.com/admin/ws";
   }
   if (match) {

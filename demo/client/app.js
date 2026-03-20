@@ -1260,9 +1260,11 @@ $("user-id").value = `U${String(Math.floor(Math.random() * 1000)).padStart(3, "0
   let match = "";
   if (host === "127.0.0.1" || host === "localhost") {
     match = "ws://127.0.0.1:1974/ws";
+  } else if (host === "192.168.0.25") {
+    match = "ws://192.168.0.25:1974/ws";
   } else if (host === "192.168.0.29") {
     match = "ws://192.168.0.29:1974/ws";
-  } else if (host.includes("oxlens.com")) {
+  }else if (host.includes("oxlens.com")) {
     match = "wss://www.oxlens.com/ws";
   }
   if (match) {
