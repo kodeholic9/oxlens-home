@@ -30,9 +30,10 @@ const remoteStreams = new Map();
 
 const remoteAudio = $("remote-audio");
 
-// Simulcast
+// Simulcast + 전체 화면
 const _manualLayerOverride = new Set();
 let _longPressTimer = null;
+let _fullscreenUid = null;
 
 // ============================================================
 //  Util
@@ -227,6 +228,10 @@ function resetUI() {
   localStream = null;
   remoteStreams.clear();
   remoteAudio.srcObject = null;
+  _fullscreenUid = null;
+  // GainNode 정리
+  if (_inputGainCtx) { _inputGainCtx.close().catch(() => {}); _inputGainCtx = null; }
+  _inputGainNode = null;
   $("conf-grid").innerHTML = "";
   $("room-select").innerHTML = '<option value="">방 선택</option>';
   switchControlMode("conference");
@@ -413,6 +418,8 @@ function bindSdkEvents(s) {
       log("sys", `${uid} 퇴장`);
       remoteStreams.delete(uid);
       _manualLayerOverride.delete(uid);
+      // 전체 화면 대상이 퇴장하면 해제
+      if (_fullscreenUid === uid) exitFullscreen();
       // audio element 정리
       const audioEl = document.querySelector(`audio[data-uid="${uid}"]`);
       if (audioEl) {
@@ -499,6 +506,7 @@ function bindSdkEvents(s) {
         audioEl.autoplay = true;
         audioEl.dataset.uid = audioKey;
         audioEl.style.display = "none";
+        audioEl.volume = parseInt($("set-output-vol").value) / 100;
         document.body.appendChild(audioEl);
         // DeviceManager에 출력 대상 등록 (setSinkId 적용)
         sdk.addOutputElement(audioEl);
@@ -561,6 +569,9 @@ function bindSdkEvents(s) {
       updateRoomBtn();
       showToast("ok", "미디어 연결 완료");
       log("ok", "미디어 연결 완료");
+      // 마이크 GainNode 연결 + 오디오 constraints 적용
+      _wireInputGain();
+      _applyAudioConstraints();
     }
     // ICE failed → 모달
     if (pc === "publish" && state === "failed" && isInRoom) {
@@ -1268,6 +1279,127 @@ $("set-camera").onchange = async () => {
 };
 
 // ============================================================
+//  오디오 설정 핸들러 (localStorage 영속화)
+// ============================================================
+
+const AUDIO_PREF_KEY = "oxlens_audio_pref";
+
+function _loadAudioPref() {
+  try {
+    return JSON.parse(localStorage.getItem(AUDIO_PREF_KEY)) || {};
+  } catch { return {}; }
+}
+
+function _saveAudioPref(patch) {
+  const cur = _loadAudioPref();
+  Object.assign(cur, patch);
+  localStorage.setItem(AUDIO_PREF_KEY, JSON.stringify(cur));
+}
+
+/** 저장된 설정을 UI에 복원 */
+function _restoreAudioPref() {
+  const p = _loadAudioPref();
+  // 수신 볼륨 (기본 100 = 시스템 통화 볼륨 패스스루)
+  const outVol = p.outputVol ?? 100;
+  $("set-output-vol").value = outVol;
+  $("set-output-vol-label").textContent = `${outVol}%`;
+  remoteAudio.volume = outVol / 100;
+  // 마이크 게인 (기본 100)
+  const inGain = p.inputGain ?? 100;
+  $("set-input-gain").value = inGain;
+  $("set-input-gain-label").textContent = `${inGain}%`;
+  // 토글 (기본 전부 ON)
+  _setToggleBtn("set-ns", p.ns ?? true);
+  _setToggleBtn("set-aec", p.aec ?? true);
+  _setToggleBtn("set-agc", p.agc ?? true);
+}
+
+// 수신 볼륨 슬라이더
+$("set-output-vol").oninput = () => {
+  const val = parseInt($("set-output-vol").value);
+  $("set-output-vol-label").textContent = `${val}%`;
+  const vol = val / 100;
+  remoteAudio.volume = vol;
+  document.querySelectorAll('audio[data-uid]').forEach(el => { el.volume = vol; });
+  _saveAudioPref({ outputVol: val });
+};
+
+// 마이크 게인 슬라이더 (Web Audio GainNode)
+let _inputGainNode = null;
+let _inputGainCtx = null;
+
+$("set-input-gain").oninput = () => {
+  const val = parseInt($("set-input-gain").value);
+  $("set-input-gain-label").textContent = `${val}%`;
+  if (_inputGainNode) {
+    _inputGainNode.gain.value = val / 100;
+    log("sys", `마이크 게인: ${val}%`);
+  }
+  _saveAudioPref({ inputGain: val });
+};
+
+/** 마이크 트랙에 GainNode 체인 삽입 (미디어 획득 후 1회 호출) */
+async function _wireInputGain() {
+  if (!sdk?.media?.audioSender?.track) return;
+  const track = sdk.media.audioSender.track;
+  if (track._gainWired) return;
+
+  try {
+    _inputGainCtx = new AudioContext();
+    const source = _inputGainCtx.createMediaStreamSource(new MediaStream([track]));
+    _inputGainNode = _inputGainCtx.createGain();
+    _inputGainNode.gain.value = parseInt($("set-input-gain").value) / 100;
+    const dest = _inputGainCtx.createMediaStreamDestination();
+    source.connect(_inputGainNode).connect(dest);
+    const gainedTrack = dest.stream.getAudioTracks()[0];
+    await sdk.media.audioSender.replaceTrack(gainedTrack);
+    track._gainWired = true;
+    log("ok", `마이크 GainNode 연결 (gain=${_inputGainNode.gain.value})`);
+  } catch (e) {
+    log("err", `GainNode 연결 실패: ${e.message}`);
+  }
+}
+
+// NS / AEC / AGC 토글 버튼
+function _setToggleBtn(id, on) {
+  const btn = $(id);
+  btn.dataset.on = String(on);
+  btn.textContent = on ? "ON" : "OFF";
+  btn.className = on
+    ? "px-2 py-0.5 rounded text-xs font-mono font-medium border transition-colors bg-green-500/20 text-green-400 border-green-500/30"
+    : "px-2 py-0.5 rounded text-xs font-mono font-medium border transition-colors bg-brand-surface text-gray-500 border-white/10";
+}
+
+function _initToggleBtn(id, prefKey) {
+  $(id).onclick = async () => {
+    const next = $(id).dataset.on !== "true";
+    _setToggleBtn(id, next);
+    _saveAudioPref({ [prefKey]: next });
+    _applyAudioConstraints();
+  };
+}
+
+async function _applyAudioConstraints() {
+  const track = sdk?.media?.stream?.getAudioTracks()?.[0];
+  if (!track) return;
+  try {
+    await track.applyConstraints({
+      noiseSuppression: $("set-ns").dataset.on === "true",
+      echoCancellation: $("set-aec").dataset.on === "true",
+      autoGainControl: $("set-agc").dataset.on === "true",
+    });
+    log("ok", `오디오: NS=${$("set-ns").dataset.on} AEC=${$("set-aec").dataset.on} AGC=${$("set-agc").dataset.on}`);
+  } catch (e) {
+    log("err", `오디오 설정 적용 실패: ${e.message}`);
+  }
+}
+
+_initToggleBtn("set-ns", "ns");
+_initToggleBtn("set-aec", "aec");
+_initToggleBtn("set-agc", "agc");
+_restoreAudioPref();
+
+// ============================================================
 //  Init
 // ============================================================
 $("app-version").textContent = `SDK v${SDK_VERSION}`;
@@ -1301,7 +1433,7 @@ $("user-id").value = `U${String(Math.floor(Math.random() * 1000)).padStart(3, "0
 log("sys", `Light LiveChat 클라이언트 준비 완료 (SDK v${SDK_VERSION})`);
 
 // ============================================================
-//  Simulcast: 레이어 선택 + long-press 팝업
+//  Long-press 팝업: 전체 화면 + Simulcast 레이어 선택
 // ============================================================
 
 /** 타일 레이아웃에 따른 레이어 재분배 (Phase 3 기본형) */
@@ -1323,36 +1455,87 @@ function redistributeTiles() {
   }
 }
 
-/** Long-press 레이어 선택 팝업 (simulcast 디버그용) */
-function showLayerPopup(tile) {
+/** 전체 화면 진입 */
+function enterFullscreen(uid) {
+  _fullscreenUid = uid;
+  const grid = $("conf-grid");
+  if (!grid) return;
+  grid.querySelectorAll(".conf-tile").forEach(tile => {
+    if (tile.dataset.uid === uid) {
+      tile.classList.remove("hidden");
+    } else {
+      tile.classList.add("hidden");
+    }
+  });
+  grid.style.gridTemplateColumns = "1fr";
+  log("sys", `[UI] 전체 화면: ${uid}`);
+}
+
+/** 전체 화면 해제 */
+function exitFullscreen() {
+  _fullscreenUid = null;
+  const grid = $("conf-grid");
+  if (!grid) return;
+  grid.querySelectorAll(".conf-tile").forEach(tile => tile.classList.remove("hidden"));
+  updateGridLayout(grid.querySelectorAll(".conf-tile").length);
+  log("sys", "[UI] 전체 화면 해제");
+}
+
+/** Long-press 팝업 생성 (전체 화면 + simulcast 레이어) */
+function _addPopupBtn(popup, label, cls, onClick) {
+  const btn = document.createElement("button");
+  btn.className = `px-4 py-2 rounded text-sm font-mono font-bold transition-colors ${cls}`;
+  btn.textContent = label;
+  btn.onclick = (e) => { e.stopPropagation(); onClick(); popup.remove(); };
+  popup.appendChild(btn);
+}
+
+function showTilePopup(tile) {
   const uid = tile.dataset.uid;
   if (!uid) return;
-  document.querySelector(".layer-popup")?.remove();
+  document.querySelector(".tile-popup")?.remove();
 
   const popup = document.createElement("div");
-  popup.className = "layer-popup absolute z-50 bg-brand-surface border border-white/20 rounded-lg p-2 shadow-xl flex gap-2";
-  popup.style.cssText = "top:50%;left:50%;transform:translate(-50%,-50%);";
+  popup.className = "tile-popup absolute z-50 bg-brand-surface border border-white/20 rounded-lg p-2 shadow-xl flex flex-col gap-2";
+  popup.style.cssText = "top:50%;left:50%;transform:translate(-50%,-50%) scale(0);opacity:0;transition:transform 0.2s cubic-bezier(0.34,1.56,0.64,1),opacity 0.2s ease;";
+  requestAnimationFrame(() => { popup.style.transform = "translate(-50%,-50%) scale(1)"; popup.style.opacity = "1"; });
 
-  ["h", "l", "pause"].forEach(rid => {
-    const btn = document.createElement("button");
-    btn.className = "px-4 py-2 rounded text-sm font-mono font-bold transition-colors " +
-      (rid === "h" ? "bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/30" :
-       rid === "l" ? "bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 border border-yellow-500/30" :
-       "bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30");
-    btn.textContent = rid === "pause" ? "PAUSE" : rid.toUpperCase();
-    btn.onclick = (e) => {
-      e.stopPropagation();
-      sdk.sig.subscribeLayer([{ user_id: uid, rid }]);
-      _manualLayerOverride.add(uid);
-      popup.remove();
-      log("sys", `[SIM] layer=${rid} for ${uid} (manual)`);
-    };
-    popup.appendChild(btn);
-  });
+  // 전체 화면 / 해제
+  if (_fullscreenUid === uid) {
+    _addPopupBtn(popup, "해제", "bg-gray-500/20 text-gray-300 hover:bg-gray-500/30 border border-gray-500/30", () => {
+      exitFullscreen();
+      log("sys", `[UI] 전체 화면 해제: ${uid}`);
+    });
+  } else {
+    _addPopupBtn(popup, "전체 화면", "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 border border-blue-500/30", () => {
+      enterFullscreen(uid);
+    });
+  }
+
+  // Simulcast 레이어 선택 (활성 시만)
+  if (sdk?._simulcastEnabled) {
+    ["h", "l", "pause"].forEach(rid => {
+      const cls = rid === "h" ? "bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/30"
+        : rid === "l" ? "bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 border border-yellow-500/30"
+        : "bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30";
+      _addPopupBtn(popup, rid === "pause" ? "PAUSE" : rid.toUpperCase(), cls, () => {
+        sdk.sig.subscribeLayer([{ user_id: uid, rid }]);
+        _manualLayerOverride.add(uid);
+        log("sys", `[SIM] layer=${rid} for ${uid} (manual)`);
+      });
+    });
+  }
 
   tile.style.position = "relative";
   tile.appendChild(popup);
-  setTimeout(() => popup.remove(), 4000);
+  // 4초 후 서서히 사라지며 제거
+  setTimeout(() => {
+    popup.style.transform = "translate(-50%,-50%) scale(0)";
+    popup.style.opacity = "0";
+    popup.addEventListener("transitionend", () => popup.remove(), { once: true });
+    // transitionend 미발화 방어
+    setTimeout(() => popup.remove(), 300);
+  }, 4000);
 }
 
 // conf-grid long-press 이벤트 위임
@@ -1360,16 +1543,16 @@ function showLayerPopup(tile) {
 $("conf-grid").addEventListener("pointerdown", (e) => {
   const tile = e.target.closest(".conf-tile");
   if (!tile || tile.classList.contains("is-me")) return;
-  if (!sdk || !sdk._simulcastEnabled) return;
-  e.preventDefault(); // 브라우저 드래그 방지 → pointercancel 방지
+  if (!sdk) return;
+  e.preventDefault();
   clearTimeout(_longPressTimer);
-  _longPressTimer = setTimeout(() => showLayerPopup(tile), 800);
+  _longPressTimer = setTimeout(() => showTilePopup(tile), 800);
 });
 $("conf-grid").addEventListener("pointerup", () => clearTimeout(_longPressTimer));
 $("conf-grid").addEventListener("pointercancel", () => clearTimeout(_longPressTimer));
-$("conf-grid").addEventListener("pointermove", () => clearTimeout(_longPressTimer)); // 드래그 의도 → 팝업 취소
+$("conf-grid").addEventListener("pointermove", () => clearTimeout(_longPressTimer));
 $("conf-grid").addEventListener("contextmenu", (e) => {
-  if (sdk?._simulcastEnabled) e.preventDefault();
+  if (sdk) e.preventDefault();
 });
 
 // ============================================================
