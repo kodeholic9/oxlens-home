@@ -63,13 +63,25 @@ export class MediaSession {
     if (this._stream) return;
 
     const mc = this.sdk.mediaConfig;
-    const constraints = {
-      audio: true,
-      video: enableVideo
-        ? { width: { ideal: mc.width }, height: { ideal: mc.height }, frameRate: { ideal: mc.frameRate } }
-        : false,
-    };
-    this._stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+    // Fallback 전략: audio+video → audio-only → 에러
+    // 카메라 거부/미지원 환경에서도 음성만으로 진입 가능
+    if (enableVideo) {
+      try {
+        this._stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: { width: { ideal: mc.width }, height: { ideal: mc.height }, frameRate: { ideal: mc.frameRate } },
+        });
+        this.sdk.emit("media:local", this._stream);
+        return;
+      } catch (e) {
+        console.warn(`[MEDIA] audio+video 실패 (${e.name}), audio-only fallback 시도`);
+        this.sdk.emit("media:fallback", { kind: "video", reason: e.name });
+      }
+    }
+
+    // audio-only (video 미요청이거나 위에서 fallback)
+    this._stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     this.sdk.emit("media:local", this._stream);
   }
 
@@ -289,7 +301,7 @@ export class MediaSession {
       console.log(`[DBG:ICE] pub iceConnectionState=${this._pubPc.iceConnectionState}`);
       this.sdk.emit("media:ice", { pc: "publish", state: this._pubPc.iceConnectionState });
       // connected 시점에 pending publish tracks 재시도
-      if (this._pubPc.iceConnectionState === "connected" && this._pendingPublishTracks) {
+      if ((this._pubPc.iceConnectionState === "connected" || this._pubPc.iceConnectionState === "completed") && this._pendingPublishTracks) {
         this._pendingPublishTracks = false;
         console.log("[MEDIA] ICE connected → retrying PUBLISH_TRACKS");
         this._sendPublishTracks();

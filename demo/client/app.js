@@ -330,8 +330,11 @@ function bindSdkEvents(s) {
   });
 
   s.on("room:joined", (d) => {
-    joinPhase = "connecting";
-    showToast("ice", "미디어 연결 중…");
+    // media:ice 가 room:joined 보다 먼저 fire되어 이미 connected 상태면 덮어쓰지 않음
+    if (joinPhase !== "connected") {
+      joinPhase = "connecting";
+      showToast("ice", "미디어 연결 중…");
+    }
     isInRoom = true;
     currentRoomMode = sdk?.roomMode || "conference";
     updateRoomBtn();
@@ -442,6 +445,26 @@ function bindSdkEvents(s) {
   });
 
   // ── Media ──
+  // 카메라 권한 실패 → 오디오만으로 fallback 알림
+  s.on("media:fallback", ({ dropped, reason }) => {
+    log("sys", `[FALLBACK] ${dropped} 사용 불가 → 오디오만 입장 (${reason})`);
+    showToast("warn", `카메라 사용 불가 — 음성만 입장합니다`, 5000);
+    // 비디오 버튼 비활성 표시
+    $("icon-video-on").classList.add("hidden");
+    $("icon-video-off").classList.remove("hidden");
+  });
+
+  // 카메라 fallback 알림 (audio-only로 진입)
+  s.on("media:fallback", ({ kind, reason }) => {
+    showToast("warn", `카메라 사용 불가 — 음성만으로 진입합니다`, 4000);
+    log("sys", `[MEDIA] ${kind} fallback: ${reason}`);
+    // 비디오 버튼 off 상태로 전환
+    if (kind === "video") {
+      $("icon-video-on").classList.add("hidden");
+      $("icon-video-off").classList.remove("hidden");
+    }
+  });
+
   s.on("media:local", (stream) => {
     localStream = stream;
     const tracks = stream.getTracks().map(t => `${t.kind}(${t.label})`).join(", ");
@@ -525,13 +548,15 @@ function bindSdkEvents(s) {
   });
 
   s.on("media:ice", ({ pc, state }) => {
-    log(state === "connected" ? "ok" : "sys", `[ICE] ${pc} ${state}`);
-    // PTT 모드: publish connected 시 마이크 버튼 숨김 적용
-    if (pc === "publish" && state === "connected" && currentRoomMode === "ptt") {
+    log((state === "connected" || state === "completed") ? "ok" : "sys", `[ICE] ${pc} ${state}`);
+    // PTT 모드: ICE connected/completed 시 마이크 버튼 숨김 적용
+    if ((state === "connected" || state === "completed") && currentRoomMode === "ptt") {
       $("conf-btn-mic").classList.add("hidden");
     }
-    // publish ICE connected → 미디어 경로 확립 (컨트롤 버튼 녹색 전환)
-    if (pc === "publish" && state === "connected" && joinPhase === "connecting") {
+    // ICE connected/completed → 미디어 경로 확립 (컨트롤 버튼 녹색 전환)
+    // publish/subscribe 구분 없이, 어느 쪽이든 먼저 맞는 PC가 트리거
+    // joinPhase: setup() 중 ICE가 먼저 fire되면 "signaling" 단계일 수 있음
+    if ((state === "connected" || state === "completed") && joinPhase && joinPhase !== "connected") {
       joinPhase = "connected";
       updateRoomBtn();
       showToast("ok", "미디어 연결 완료");

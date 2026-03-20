@@ -146,8 +146,23 @@ export class OxLensClient extends EventEmitter {
     try {
       await this.media.acquireMedia(enableVideo);
     } catch (e) {
-      this.emit("error", { code: 0, msg: `미디어 획득 실패: ${e.message}` });
-      return;
+      // 비디오 포함 실패 → 오디오만으로 fallback
+      if (enableVideo) {
+        console.warn(`[SDK] 카메라 획득 실패, 오디오만 재시도: ${e.message}`);
+        try {
+          await this.media.acquireMedia(false);
+          this._enableVideo = false;
+          this.emit("media:fallback", { dropped: "video", reason: e.message });
+        } catch (e2) {
+          this.emit("error", { code: 0, msg: `미디어 획득 실패 (카메라+마이크 모두 불가): ${e2.message}` });
+          this._roomId = null;
+          return;
+        }
+      } else {
+        this.emit("error", { code: 0, msg: `마이크 획득 실패: ${e.message}` });
+        this._roomId = null;
+        return;
+      }
     }
 
     // getUserMedia 성공 후 장치 감시 시작 (label 노출 보장)
