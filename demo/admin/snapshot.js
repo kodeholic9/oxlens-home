@@ -282,7 +282,8 @@ export function buildSnapshot() {
       const latest = ring[ring.length - 1];
       const since = latest.since ? new Date(latest.since).toISOString() : "?";
       const elapsed = latest.since ? fmtElapsed(Date.now() - latest.since) : "?";
-      L.push(`[${latest.userId}@${latest.roomId.substring(0, 8)}] since=${since} (${elapsed})`);
+      const activeSince = latest.activeSince ? new Date(latest.activeSince).toISOString() : "?";
+      L.push(`[${latest.userId}@${latest.roomId.substring(0, 8)}] since=${since} (${elapsed}) room_active=${activeSince}`);
       L.push(`  [pub] in=${latest.pub_rtp_in}(+${latest.pub_rtp_in_d}) gated=${latest.pub_rtp_gated}(+${latest.pub_rtp_gated_d}) rewritten=${latest.pub_rtp_rewritten}(+${latest.pub_rtp_rewritten_d}) vid_pending=${latest.pub_video_pending}(+${latest.pub_video_pending_d})`);
       L.push(`  [sub] relayed=${latest.sub_rtp_relayed}(+${latest.sub_rtp_relayed_d}) dropped=${latest.sub_rtp_dropped}(+${latest.sub_rtp_dropped_d}) sr=${latest.sub_sr_relayed}(+${latest.sub_sr_relayed_d})`);
       // 최근 20슬롯 delta 추이 (pub_rtp_in_d, sub_rtp_relayed_d)

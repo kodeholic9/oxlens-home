@@ -329,7 +329,9 @@ const PIPELINE_FIELDS = [
 
 function processPipeline(pipeline, ts) {
   for (const [roomId, participants] of Object.entries(pipeline)) {
+    const activeSince = participants._active_since ?? 0;
     for (const [userId, counters] of Object.entries(participants)) {
+      if (userId.startsWith("_")) continue; // 메타 필드 스킵
       const key = `${roomId}:${userId}`;
       if (!pipelineRing.has(key)) {
         pipelineRing.set(key, { ring: [], prev: null });
@@ -337,7 +339,7 @@ function processPipeline(pipeline, ts) {
       const state = pipelineRing.get(key);
 
       // delta 계산: 현재 누적값 - 이전 누적값
-      const entry = { ts, roomId, userId, since: counters.since };
+      const entry = { ts, roomId, userId, since: counters.since, activeSince };
       for (const f of PIPELINE_FIELDS) {
         const cur = counters[f] ?? 0;
         const prev = state.prev ? (state.prev[f] ?? 0) : 0;
