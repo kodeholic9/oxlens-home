@@ -9,6 +9,7 @@ import {
   setRoomsSnapshot, setSelectedRoom, setSelectedUser, setLatestServerMetrics,
   resetAllState,
   pushUserSnapshot, pushSfuSnapshot,
+  pipelineRing, SNAPSHOT_RING_SIZE,
 } from "./state.js";
 import { renderRoomList, renderOverview } from "./render-overview.js";
 import { renderDetail, renderSdpPanel } from "./render-detail.js";
@@ -221,6 +222,11 @@ function handleAdminMessage(msg) {
         }
         while (serverEventLog.length > SERVER_EVENT_MAX) serverEventLog.shift();
       }
+      // Pipeline stats (per-participant counter → delta 계산 + ring buffer)
+      if (msg.pipeline) {
+        processPipeline(msg.pipeline, msg.ts || Date.now());
+      }
+
       renderServerMetrics();
       break;
 
@@ -310,6 +316,39 @@ function handleClientTelemetry(msg) {
 
     renderOverview();
     if (selectedUser === user_id) renderDetail();
+  }
+}
+
+// ============================================================
+//  Pipeline Stats → delta 계산 + ring buffer
+// ============================================================
+const PIPELINE_FIELDS = [
+  "pub_rtp_in", "pub_rtp_gated", "pub_rtp_rewritten", "pub_video_pending",
+  "sub_rtp_relayed", "sub_rtp_dropped", "sub_sr_relayed",
+];
+
+function processPipeline(pipeline, ts) {
+  for (const [roomId, participants] of Object.entries(pipeline)) {
+    for (const [userId, counters] of Object.entries(participants)) {
+      const key = `${roomId}:${userId}`;
+      if (!pipelineRing.has(key)) {
+        pipelineRing.set(key, { ring: [], prev: null });
+      }
+      const state = pipelineRing.get(key);
+
+      // delta 계산: 현재 누적값 - 이전 누적값
+      const entry = { ts, roomId, userId, since: counters.since };
+      for (const f of PIPELINE_FIELDS) {
+        const cur = counters[f] ?? 0;
+        const prev = state.prev ? (state.prev[f] ?? 0) : 0;
+        entry[f] = cur;              // 누적 (total)
+        entry[f + "_d"] = cur - prev; // delta (3s window)
+      }
+      state.prev = { ...counters };
+
+      state.ring.push(entry);
+      while (state.ring.length > SNAPSHOT_RING_SIZE) state.ring.shift();
+    }
   }
 }
 

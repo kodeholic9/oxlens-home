@@ -41,6 +41,10 @@ export const roomCreatedAtMap = new Map();
 export const SERVER_EVENT_MAX = 100;
 export const serverEventLog = [];
 
+// pipeline stats ring buffer (per-participant, counter 누적 → delta 계산)
+// key: "room_id:user_id", value: { ring: [{ts, ...counters}], prev: {...} }
+export const pipelineRing = new Map();
+
 // ============================================================
 //  상태 변경 함수 (let 바인딩은 직접 export 재할당 불가이므로 setter 제공)
 // ============================================================
@@ -107,4 +111,5 @@ export function resetAllState() {
   joinedAtMap.clear();
   roomCreatedAtMap.clear();
   serverEventLog.length = 0;
+  pipelineRing.clear();
 }
