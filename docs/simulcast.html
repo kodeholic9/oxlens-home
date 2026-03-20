@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="ko">
+<!--
+  @author: kodeholic (powered by Claude)
+  @description: Simulcast — 개념, OxLens 구현 과정, 핵심 구조, 검증 결과
+  @version: v0.6.3
+  @date: 2026-03-20
+-->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>0xLENS — Simulcast</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Pretendard', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            rust: '#E45B25',
+                            cyan: '#00F0FF',
+                            dark: '#0B0F19',
+                            surface: '#151B2B'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #0B0F19; color: #E2E8F0; }
+        .bg-grid {
+            background-size: 40px 40px;
+            background-image: linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+                              linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
+        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0B0F19; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        .word-keep-all { word-break: keep-all; }
+        .metric-card { border: 1px solid rgba(255,255,255,0.06); transition: border-color 0.2s; }
+        .metric-card:hover { border-color: rgba(0,240,255,0.2); }
+        .section-line { height: 1px; background: linear-gradient(90deg, transparent, rgba(0,240,255,0.15), transparent); }
+        .flow-box { border: 1px solid rgba(255,255,255,0.1); background: #151B2B; border-radius: 8px; padding: 12px 16px; }
+        .flow-arrow { color: #00F0FF; font-family: 'JetBrains Mono', monospace; }
+        .phase-done { border-left: 3px solid #22C55E; }
+        .phase-current { border-left: 3px solid #00F0FF; }
+        .phase-todo { border-left: 3px solid rgba(255,255,255,0.1); }
+        .fade-in { opacity: 0; transform: translateY(16px); animation: fadeUp 0.5s ease forwards; }
+        @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
+        .delay-1 { animation-delay: 0.1s; }
+        .delay-2 { animation-delay: 0.2s; }
+        .delay-3 { animation-delay: 0.3s; }
+        .delay-4 { animation-delay: 0.4s; }
+        .layer-h { background: linear-gradient(135deg, #E45B25 0%, #ff8a50 100%); }
+        .layer-l { background: linear-gradient(135deg, #0891B2 0%, #00F0FF 100%); }
+        .layer-pause { background: linear-gradient(135deg, #374151 0%, #4B5563 100%); }
+    </style>
+</head>
+<body class="bg-grid min-h-screen font-sans antialiased selection:bg-brand-rust selection:text-white">
+
+    <!-- Header -->
+    <header class="sticky top-0 z-50 bg-brand-dark/90 backdrop-blur-md border-b border-white/10">
+        <div class="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+            <a href="../index.html" class="flex items-center gap-2">
+                <span class="font-mono text-xl font-extrabold tracking-tight">
+                    <span class="text-brand-rust">0x</span><span class="text-white">LENS</span>
+                </span>
+                <span class="text-gray-600 text-xs font-mono">v0.6.3</span>
+            </a>
+            <nav class="flex items-center gap-4 text-xs font-mono text-gray-500">
+                <a href="../index.html" class="hover:text-white transition">&larr; Home</a>
+                <a href="./rtcp-terminator.html" class="hover:text-white transition">RTCP Terminator</a>
+                <a href="./ptt-design.html" class="hover:text-white transition">PTT Design</a>
+                <a href="./architecture.html" class="hover:text-white transition">Architecture</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="max-w-5xl mx-auto px-4 sm:px-6 py-12 space-y-16">
+
+        <!-- Hero -->
+        <section class="fade-in">
+            <p class="font-mono text-xs text-brand-cyan tracking-widest uppercase mb-3">Simulcast · Phase 0–3 · v0.6.3</p>
+            <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight leading-tight mb-4 word-keep-all">
+                Simulcast —<br>
+                <span class="text-brand-cyan">하나의 카메라, 두 개의 품질</span>
+            </h1>
+            <p class="text-gray-400 text-sm max-w-2xl word-keep-all leading-relaxed">
+                Simulcast는 하나의 카메라로 고화질(h)과 저화질(l) 두 레이어를 동시에 인코딩하여 서버에 전송하는 기술이다.
+                SFU는 수신자의 네트워크 상태, 화면 크기, 중요도에 따라 적절한 레이어를 선택하여 전달한다.
+                0xLENS는 Phase 0부터 Phase 3까지 4단계에 걸쳐 Simulcast를 구현했다.
+            </p>
+            <p class="text-gray-600 text-xs font-mono mt-4">2026-03-20 · 설계 + 구현 + 실측</p>
+        </section>
+
+        <!-- ================================================================ -->
+        <!-- What is Simulcast -->
+        <!-- ================================================================ -->
+        <section class="fade-in delay-1">
+            <h2 class="text-xl font-bold mb-6 flex items-center gap-2">
+                <span class="text-brand-rust font-mono text-sm">00</span> Simulcast란 무엇인가
+            </h2>
+
+            <div class="grid sm:grid-cols-2 gap-6 mb-8">
+                <!-- Without Simulcast -->
+                <div class="bg-brand-surface rounded-xl p-5 metric-card">
+                    <p class="text-xs font-mono text-red-400 mb-3">Without Simulcast</p>
+                    <div class="space-y-3 text-sm text-gray-300 word-keep-all leading-relaxed">
+                        <p>카메라 → <strong class="text-white">단일 스트림</strong>(예: 1080p 2Mbps) → SFU → 모든 수신자에게 동일 품질 전달.</p>
+                        <p>WiFi 좋은 수신자와 3G 수신자가 같은 스트림을 받는다. 3G 수신자는 패킷 손실과 버퍼링에 시달리고, SFU가 대역폭 제한을 걸면 WiFi 수신자도 저화질을 감수해야 한다.</p>
+                    </div>
+                    <div class="mt-4 bg-black/30 rounded-lg p-3 font-mono text-xs text-gray-500 leading-relaxed">
+                        Camera → [1080p 2Mbps] → SFU → [1080p] → 🖥️ WiFi ✅<br>
+                        <span class="ml-[230px] sm:ml-[258px]">→ [1080p] → 📱 3G ❌</span>
+                    </div>
+                </div>
+
+                <!-- With Simulcast -->
+                <div class="bg-brand-surface rounded-xl p-5 metric-card" style="border-color: rgba(0,240,255,0.15);">
+                    <p class="text-xs font-mono text-brand-cyan mb-3">With Simulcast</p>
+                    <div class="space-y-3 text-sm text-gray-300 word-keep-all leading-relaxed">
+                        <p>카메라 → <strong class="text-white">고화질(h) + 저화질(l)</strong> 두 레이어 동시 인코딩 → SFU가 수신자별로 최적 레이어 선택.</p>
+                        <p>WiFi 수신자는 h 레이어(1080p)를, 3G 수신자는 l 레이어(360p)를 받는다. 각자의 네트워크에 맞는 최적 품질.</p>
+                    </div>
+                    <div class="mt-4 bg-black/30 rounded-lg p-3 font-mono text-xs leading-relaxed">
+                        <span class="text-gray-500">Camera →</span> <span class="text-brand-rust">[h 1080p 1.6M]</span> <span class="text-gray-500">→ SFU →</span> <span class="text-brand-rust">[h]</span> <span class="text-gray-500">→ 🖥️ WiFi ✅</span><br>
+                        <span class="ml-[62px] sm:ml-[72px] text-brand-cyan">[l  360p 180k]</span> <span class="text-gray-600 ml-[18px] sm:ml-[22px]">↗</span><span class="ml-[6px]"></span><span class="text-gray-500">→</span> <span class="text-brand-cyan">[l]</span> <span class="text-gray-500">→ 📱 3G ✅</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Core Concepts -->
+            <div class="bg-brand-surface rounded-xl p-6 metric-card">
+                <p class="text-xs font-mono text-gray-500 mb-4">핵심 개념</p>
+                <div class="grid sm:grid-cols-3 gap-4">
+                    <div>
+                        <div class="flex items-center gap-2 mb-2">
+                            <div class="w-3 h-3 rounded-sm layer-h"></div>
+                            <span class="text-sm font-bold text-white">h (High)</span>
+                        </div>
+                        <p class="text-xs text-gray-400 word-keep-all leading-relaxed">
+                            고화질 레이어. 원본 해상도 + 높은 비트레이트.
+                            발표자, 메인 화면, WiFi 환경에 적합.
+                            0xLENS 기준 1.6Mbps / 24fps.
+                        </p>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2 mb-2">
+                            <div class="w-3 h-3 rounded-sm layer-l"></div>
+                            <span class="text-sm font-bold text-white">l (Low)</span>
+                        </div>
+                        <p class="text-xs text-gray-400 word-keep-all leading-relaxed">
+                            저화질 레이어. 축소 해상도 + 낮은 비트레이트.
+                            썸네일, 작은 타일, 모바일 환경에 적합.
+                            0xLENS 기준 180kbps / 24fps.
+                        </p>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2 mb-2">
+                            <div class="w-3 h-3 rounded-sm layer-pause"></div>
+                            <span class="text-sm font-bold text-white">pause</span>
+                        </div>
+                        <p class="text-xs text-gray-400 word-keep-all leading-relaxed">
+                            영상 수신 중단. 화면에 보이지 않는 참가자의 대역폭을 절약.
+                            IntersectionObserver 등으로 자동 제어 가능.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <div class="section-line my-12"></div>
+
+        <!-- ================================================================ -->
+        <!-- Why Simulcast is Hard in SFU -->
+        <!-- ================================================================ -->
+        <section class="fade-in delay-2">
+            <h2 class="text-xl font-bold mb-6 flex items-center gap-2">
+                <span class="text-brand-rust font-mono text-sm">01</span> SFU에서 Simulcast가 어려운 이유
+            </h2>
+
+            <div class="space-y-4">
+                <div class="bg-brand-surface rounded-xl p-5 metric-card">
+                    <p class="text-sm font-bold text-yellow-400 mb-2">SSRC 문제 — Chrome이 2개를 보내지만 Subscriber는 1개만 알아야 한다</p>
+                    <p class="text-xs text-gray-400 word-keep-all leading-relaxed">
+                        Publisher Chrome은 h 레이어와 l 레이어에 각각 다른 SSRC를 할당한다.
+                        그런데 Subscriber Chrome의 SDP에는 하나의 video m-line만 있고, 하나의 SSRC만 매칭할 수 있다.
+                        SFU가 레이어를 전환할 때마다 SSRC가 바뀌면 Chrome은 "새로운 스트림"으로 인식하여 디코더를 재생성한다.
+                        이는 화면 깜빡임, 디코딩 지연, 심하면 영상 멈춤을 유발한다.
+                    </p>
+                </div>
+
+                <div class="bg-brand-surface rounded-xl p-5 metric-card">
+                    <p class="text-sm font-bold text-yellow-400 mb-2">Sequence / Timestamp 연속성 — 끊김 없는 전환</p>
+                    <p class="text-xs text-gray-400 word-keep-all leading-relaxed">
+                        h → l 전환 시, l 레이어의 seq/ts는 h와 완전히 다른 시퀀스를 갖는다.
+                        그대로 전달하면 Chrome의 jitter buffer가 "패킷 대량 손실"로 오판하여 NACK 폭풍 + FEC 요청을 쏟아낸다.
+                        SFU가 seq/ts를 연속적으로 rewrite해야 전환이 투명하게 느껴진다.
+                    </p>
+                </div>
+
+                <div class="bg-brand-surface rounded-xl p-5 metric-card">
+                    <p class="text-sm font-bold text-yellow-400 mb-2">키프레임 동기화 — 레이어 전환은 키프레임에서만 가능</p>
+                    <p class="text-xs text-gray-400 word-keep-all leading-relaxed">
+                        VP8/H.264의 P-frame은 이전 프레임과의 차분만 담고 있어, 새 레이어의 P-frame을 갑자기 보내면 디코더가 깨진다.
+                        반드시 키프레임(I-frame)이 도착한 후에야 새 레이어 relay를 시작할 수 있다.
+                        PLI(Picture Loss Indication)로 키프레임을 요청하고, 도착할 때까지 P-frame은 전부 드롭해야 한다.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <div class="section-line my-12"></div>
+
+        <!-- ================================================================ -->
+        <!-- OxLens Solution: Virtual SSRC + SimulcastRewriter -->
+        <!-- ================================================================ -->
+        <section class="fade-in delay-2">
+            <h2 class="text-xl font-bold mb-6 flex items-center gap-2">
+                <span class="text-brand-rust font-mono text-sm">02</span> 0xLENS의 해법 — 가상 SSRC + SimulcastRewriter
+            </h2>
+
+            <!-- Virtual SSRC diagram -->
+            <div class="bg-black/30 rounded-xl p-6 mb-6 overflow-x-auto">
+                <p class="text-xs font-mono text-gray-500 mb-4">가상 Video SSRC 아키텍처</p>
+                <pre class="font-mono text-xs sm:text-sm leading-loose text-gray-300">
+<span class="text-brand-rust">Publisher[h]</span> real_ssrc=0xAAA ─┐
+<span class="text-brand-cyan">Publisher[l]</span> real_ssrc=0xBBB ─┤  서버: <span class="text-white font-bold">ensure_simulcast_video_ssrc()</span> → <span class="text-green-400">virtual=0xCCC</span>
+                               │
+<span class="text-gray-500">TRACKS_UPDATE(add)</span> ────────────┤→ subscriber에게 <span class="text-green-400">ssrc=0xCCC</span> (rid 제거)
+<span class="text-gray-500">ingress fan-out</span> ───────────────┤→ <span class="text-white">SimulcastRewriter</span>.rewrite(real→<span class="text-green-400">virtual</span>)
+<span class="text-gray-500">subscriber Chrome</span> ─────────────┘  SDP에 <span class="text-green-400">0xCCC</span> → 매칭 <span class="text-green-400">✓</span></pre>
+            </div>
+
+            <div class="grid sm:grid-cols-2 gap-4">
+                <div class="bg-brand-surface rounded-xl p-5 metric-card phase-done">
+                    <p class="text-xs font-mono text-green-400 mb-2">가상 SSRC (Virtual SSRC)</p>
+                    <p class="text-xs text-gray-400 word-keep-all leading-relaxed">
+                        Publisher별 고정 가상 video SSRC를 할당한다.
+                        TRACKS_UPDATE, ROOM_JOIN, ROOM_SYNC, TRACKS_ACK — 모든 시그널링 경로에서 실제 SSRC 대신 가상 SSRC를 전달한다.
+                        Subscriber Chrome은 항상 하나의 SSRC만 보므로 SDP 매칭이 보장된다.
+                    </p>
+                </div>
+                <div class="bg-brand-surface rounded-xl p-5 metric-card phase-done">
+                    <p class="text-xs font-mono text-green-400 mb-2">SimulcastRewriter</p>
+                    <p class="text-xs text-gray-400 word-keep-all leading-relaxed">
+                        Subscriber별 × Publisher별로 독립된 rewriter 인스턴스.
+                        RTP 패킷의 SSRC를 가상 값으로, seq/ts를 연속 offset으로 in-place rewrite한다.
+                        레이어 전환 시 키프레임 도착까지 P-frame을 드롭하고, 도착 시점에 새 offset을 계산한다.
+                    </p>
+                </div>
+                <div class="bg-brand-surface rounded-xl p-5 metric-card phase-done">
+                    <p class="text-xs font-mono text-green-400 mb-2">PLI 교착 방지 (2중 대책)</p>
+                    <p class="text-xs text-gray-400 word-keep-all leading-relaxed">
+                        대책 #1: ingress fan-out에서 SubscribeLayer 즉석 생성 시 즉시 PLI burst [0, 200, 500, 1500]ms.
+                        대책 #2: SUBSCRIBE_LAYER에서 old==new && !initialized → PLI burst.
+                        v0.6.3에서 자가 치유 추가: rewriter 미초기화 상태가 2초 이상 지속되면 자동 PLI 재시도.
+                    </p>
+                </div>
+                <div class="bg-brand-surface rounded-xl p-5 metric-card phase-done">
+                    <p class="text-xs font-mono text-green-400 mb-2">PLI/NACK 역매핑</p>
+                    <p class="text-xs text-gray-400 word-keep-all leading-relaxed">
+                        Subscriber가 PLI를 보내면 가상 SSRC → 현재 레이어의 실제 SSRC로 변환 후 Publisher에게 전달.
+                        NACK도 가상 seq → 실제 seq로 역산하여 올바른 RTX 패킷을 캐시에서 찾는다.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <div class="section-line my-12"></div>
+
+        <!-- ================================================================ -->
+        <!-- Implementation Phases -->
+        <!-- ================================================================ -->
+        <section class="fade-in delay-3">
+            <h2 class="text-xl font-bold mb-6 flex items-center gap-2">
+                <span class="text-brand-rust font-mono text-sm">03</span> 구현 Phase — 0에서 3까지
+            </h2>
+
+            <div class="space-y-4">
+                <!-- Phase 0 -->
+                <div class="bg-brand-surface rounded-xl p-5 metric-card phase-done">
+                    <div class="flex items-center gap-3 mb-2">
+                        <span class="px-2 py-0.5 rounded bg-green-500/10 text-green-400 text-[10px] font-mono font-bold">DONE</span>
+                        <span class="text-sm font-bold text-white">Phase 0 — 구조 준비</span>
+                    </div>
+                    <p class="text-xs text-gray-400 word-keep-all leading-relaxed">
+                        <code class="text-gray-300">simulcast_enabled</code> 하드 플래그 도입. OFF 방은 기존 코드 100% 동작, ON 방만 새 경로 진입.
+                        기존 Conference/PTT E2E 테스트 통과 필수 — 절대 기존 기능을 깨뜨리지 않는 원칙.
+                    </p>
+                </div>
+
+                <!-- Phase 1 -->
+                <div class="bg-brand-surface rounded-xl p-5 metric-card phase-done">
+                    <div class="flex items-center gap-3 mb-2">
+                        <span class="px-2 py-0.5 rounded bg-green-500/10 text-green-400 text-[10px] font-mono font-bold">DONE</span>
+                        <span class="text-sm font-bold text-white">Phase 1 — 멀티 레이어 수신 + 하이 레이어 전용 릴레이</span>
+                    </div>
+                    <div class="text-xs text-gray-400 word-keep-all leading-relaxed space-y-2">
+                        <p><strong class="text-gray-300">서버:</strong> rid("h"/"l")로 트랙 구분, h 레이어만 fan-out. l 레이어 수신하되 릴레이하지 않음. TRACKS_UPDATE에서 rid="l" 필터링.</p>
+                        <p><strong class="text-gray-300">클라이언트:</strong> server-offer → client-offer 전환. Chrome이 SimulcastEncoderAdapter를 활성화하려면 addTransceiver에서 sendEncodings를 지정해야 하고, 이는 client-offer에서만 가능.</p>
+                        <p><strong class="text-gray-300">TWCC 수정:</strong> client-offer 전환 후 Chrome이 TWCC extmap ID=3을 할당, 서버 하드코딩 ID=6과 불일치 → 동적 참조로 수정.</p>
+                    </div>
+                </div>
+
+                <!-- Phase 2 (Reserved) -->
+                <div class="bg-brand-surface rounded-xl p-5 metric-card phase-todo">
+                    <div class="flex items-center gap-3 mb-2">
+                        <span class="px-2 py-0.5 rounded bg-white/5 text-gray-500 text-[10px] font-mono font-bold">RESERVED</span>
+                        <span class="text-sm font-bold text-gray-500">Phase 2 — IntersectionObserver 기반 자동 레이어 선택</span>
+                    </div>
+                    <p class="text-xs text-gray-500 word-keep-all leading-relaxed">
+                        화면에 보이는 타일만 h, 스크롤 밖 타일은 l 또는 pause로 자동 전환.
+                        Phase 3 기반 위에 클라이언트 로직만 추가하면 되므로 서버 변경 없음. 후순위.
+                    </p>
+                </div>
+
+                <!-- Phase 3 -->
+                <div class="bg-brand-surface rounded-xl p-5 metric-card phase-done">
+                    <div class="flex items-center gap-3 mb-2">
+                        <span class="px-2 py-0.5 rounded bg-green-500/10 text-green-400 text-[10px] font-mono font-bold">DONE</span>
+                        <span class="text-sm font-bold text-white">Phase 3 — 가상 SSRC + SimulcastRewriter + 동적 레이어 전환</span>
+                    </div>
+                    <div class="text-xs text-gray-400 word-keep-all leading-relaxed space-y-2">
+                        <p><strong class="text-gray-300">서버 6파일 수정:</strong> participant.rs (SimulcastRewriter, SubscribeLayerEntry, ensure_simulcast_video_ssrc), room.rs (find_publisher_by_vssrc), message.rs, track_ops.rs (handle_subscribe_layer), helpers.rs, ingress.rs (simulcast fan-out + PLI 역매핑).</p>
+                        <p><strong class="text-gray-300">SSRC 참조 경로 10항목:</strong> PUBLISH_TRACKS, ROOM_JOIN, ROOM_SYNC, ROOM_LEAVE, SUBSCRIBE_LAYER, ingress fan-out, PLI relay, NACK 역매핑, TRACKS_ACK, SR relay — 전부 가상 SSRC로 교체.</p>
+                        <p><strong class="text-gray-300">클라이언트:</strong> SUBSCRIBE_LAYER(op=51) 시그널링 + long-press 타일 팝업 (h/l/pause 선택).</p>
+                    </div>
+                </div>
+
+                <!-- Phase 4 (Todo) -->
+                <div class="bg-brand-surface rounded-xl p-5 metric-card phase-todo">
+                    <div class="flex items-center gap-3 mb-2">
+                        <span class="px-2 py-0.5 rounded bg-white/5 text-gray-500 text-[10px] font-mono font-bold">TODO</span>
+                        <span class="text-sm font-bold text-gray-500">Phase 4 — Active Speaker 자동 전환</span>
+                    </div>
+                    <p class="text-xs text-gray-500 word-keep-all leading-relaxed">
+                        RFC 6464 audio level 헤더 기반으로 현재 발화자를 서버가 감지.
+                        ACTIVE_SPEAKERS(op=144)를 200~500ms 주기로 브로드캐스트.
+                        클라이언트가 발화자는 h, 나머지는 l로 자동 전환.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <div class="section-line my-12"></div>
+
+        <!-- ================================================================ -->
+        <!-- Bugs Found & Fixed -->
+        <!-- ================================================================ -->
+        <section class="fade-in delay-3">
+            <h2 class="text-xl font-bold mb-6 flex items-center gap-2">
+                <span class="text-brand-rust font-mono text-sm">04</span> 발견된 버그 & 해결 — 실전 검증 기록
+            </h2>
+
+            <div class="space-y-4">
+                <div class="bg-brand-surface rounded-xl p-5 metric-card">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-red-400 font-mono text-xs">BUG</span>
+                        <span class="text-sm font-bold text-white">SUBSCRIBE_LAYER ↔ PUBLISH_TRACKS 레이스 컨디션</span>
+                    </div>
+                    <p class="text-xs text-gray-400 word-keep-all leading-relaxed mb-3">
+                        ROOM_JOIN 후 기존 참가자가 SUBSCRIBE_LAYER를 보내는 시점에 새 참가자의 PUBLISH_TRACKS가 아직 미도착.
+                        subscribe_layers entry가 먼저 생성 → ingress에서 <code>created=false</code> → PLI 안 보냄 → 영상 영원히 안 뜸.
+                    </p>
+                    <div class="bg-black/30 rounded-lg p-3 text-xs font-mono">
+                        <span class="text-green-400">FIX:</span> <span class="text-gray-300">PLI 자가 치유 — rewriter 미초기화 + 2초 경과 시 자동 PLI 재시도 (needs_pli_retry)</span>
+                    </div>
+                </div>
+
+                <div class="bg-brand-surface rounded-xl p-5 metric-card">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-red-400 font-mono text-xs">BUG</span>
+                        <span class="text-sm font-bold text-white">퇴장 후 재입장 시 video fan-out 실패</span>
+                    </div>
+                    <p class="text-xs text-gray-400 word-keep-all leading-relaxed mb-3">
+                        퇴장 시 다른 참가자의 subscribe_layers에 이전 세션 entry 잔존.
+                        재입장 시 old rewriter(initialized=true + 구 vSSRC) → PLI 안 보냄 + SSRC 불일치 → 영상 안 뜸.
+                    </p>
+                    <div class="bg-black/30 rounded-lg p-3 text-xs font-mono">
+                        <span class="text-green-400">FIX:</span> <span class="text-gray-300">purge_subscribe_layers() — ROOM_JOIN / ROOM_LEAVE / cleanup 3곳에서 stale entry 제거 (멱등)</span>
+                    </div>
+                </div>
+
+                <div class="bg-brand-surface rounded-xl p-5 metric-card">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-yellow-400 font-mono text-xs">NOISE</span>
+                        <span class="text-sm font-bold text-white">PLI 유령 카운팅 (pli_sent=44/3s)</span>
+                    </div>
+                    <p class="text-xs text-gray-400 word-keep-all leading-relaxed mb-3">
+                        pli_sent 글로벌 카운터가 publisher 매칭 전에 증가 → publisher를 못 찾아 드롭된 PLI도 카운트 → 어드민에 유령 44/3s.
+                    </p>
+                    <div class="bg-black/30 rounded-lg p-3 text-xs font-mono">
+                        <span class="text-green-400">FIX:</span> <span class="text-gray-300">pli_sent를 publisher 매칭 성공 + 전송 성공 시에만 증가. 드롭 시 warn 로그.</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <div class="section-line my-12"></div>
+
+        <!-- ================================================================ -->
+        <!-- Verification Results -->
+        <!-- ================================================================ -->
+        <section class="fade-in delay-4">
+            <h2 class="text-xl font-bold mb-6 flex items-center gap-2">
+                <span class="text-brand-rust font-mono text-sm">05</span> 검증 결과
+            </h2>
+
+            <div class="bg-brand-surface rounded-xl p-6 mb-6">
+                <p class="text-xs font-mono text-gray-500 mb-4">Simulcast ON · 4인 Conference · macOS localhost</p>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs sm:text-sm font-mono">
+                        <thead>
+                            <tr class="text-gray-500 border-b border-white/10">
+                                <th class="text-left py-2 pr-4">항목</th>
+                                <th class="text-right py-2 px-3">결과</th>
+                                <th class="text-left py-2 pl-4">판정</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-gray-300">
+                            <tr class="border-b border-white/5">
+                                <td class="py-2.5 pr-4">SimulcastEncoderAdapter</td>
+                                <td class="text-right py-2.5 px-3">4/4 활성</td>
+                                <td class="py-2.5 pl-4 text-green-400 font-bold">PASS</td>
+                            </tr>
+                            <tr class="border-b border-white/5">
+                                <td class="py-2.5 pr-4">h 레이어 bitrate</td>
+                                <td class="text-right py-2.5 px-3">1.6 Mbps</td>
+                                <td class="py-2.5 pl-4 text-green-400 font-bold">PASS</td>
+                            </tr>
+                            <tr class="border-b border-white/5">
+                                <td class="py-2.5 pr-4">l 레이어 bitrate</td>
+                                <td class="text-right py-2.5 px-3">180 kbps</td>
+                                <td class="py-2.5 pl-4 text-green-400 font-bold">PASS</td>
+                            </tr>
+                            <tr class="border-b border-white/5">
+                                <td class="py-2.5 pr-4">loss_delta (전 경로)</td>
+                                <td class="text-right py-2.5 px-3">0</td>
+                                <td class="py-2.5 pl-4 text-green-400 font-bold">PASS</td>
+                            </tr>
+                            <tr class="border-b border-white/5">
+                                <td class="py-2.5 pr-4">pli_sent (유령 제거 후)</td>
+                                <td class="text-right py-2.5 px-3">0/3s</td>
+                                <td class="py-2.5 pl-4 text-green-400 font-bold">PASS</td>
+                            </tr>
+                            <tr class="border-b border-white/5">
+                                <td class="py-2.5 pr-4">재입장 video fan-out</td>
+                                <td class="text-right py-2.5 px-3">정상 복구</td>
+                                <td class="py-2.5 pl-4 text-green-400 font-bold">PASS</td>
+                            </tr>
+                            <tr>
+                                <td class="py-2.5 pr-4">PLI 자가 치유</td>
+                                <td class="text-right py-2.5 px-3">2초 내 정상화</td>
+                                <td class="py-2.5 pl-4 text-green-400 font-bold">PASS</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Industry Comparison -->
+            <div class="bg-brand-surface rounded-xl p-6 metric-card">
+                <p class="text-xs font-mono text-gray-500 mb-4">업계 비교 — OxLens Simulcast 접근 방식</p>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs font-mono">
+                        <thead>
+                            <tr class="text-gray-500 border-b border-white/10">
+                                <th class="text-left py-2 pr-4">항목</th>
+                                <th class="text-left py-2 px-3">LiveKit</th>
+                                <th class="text-left py-2 px-3">mediasoup</th>
+                                <th class="text-left py-2 pl-3 text-brand-cyan">0xLENS</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-gray-400">
+                            <tr class="border-b border-white/5">
+                                <td class="py-2 pr-4 text-gray-300">SSRC 전략</td>
+                                <td class="py-2 px-3">가상 SSRC</td>
+                                <td class="py-2 px-3">가상 SSRC (paused)</td>
+                                <td class="py-2 pl-3 text-brand-cyan">가상 SSRC</td>
+                            </tr>
+                            <tr class="border-b border-white/5">
+                                <td class="py-2 pr-4 text-gray-300">자동 전환</td>
+                                <td class="py-2 px-3">AdaptiveStream</td>
+                                <td class="py-2 px-3">수동</td>
+                                <td class="py-2 pl-3 text-brand-cyan">Phase 4 예정</td>
+                            </tr>
+                            <tr class="border-b border-white/5">
+                                <td class="py-2 pr-4 text-gray-300">PLI 교착 대책</td>
+                                <td class="py-2 px-3">있음</td>
+                                <td class="py-2 px-3">있음</td>
+                                <td class="py-2 pl-3 text-brand-cyan">2중 + 자가 치유</td>
+                            </tr>
+                            <tr>
+                                <td class="py-2 pr-4 text-gray-300">재입장 정합성</td>
+                                <td class="py-2 px-3">participant 재생성</td>
+                                <td class="py-2 px-3">producer/consumer 재생성</td>
+                                <td class="py-2 pl-3 text-brand-cyan">purge + 자가 치유</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <div class="section-line my-12"></div>
+
+        <!-- References -->
+        <section class="text-xs text-gray-600 font-mono space-y-1 pb-8">
+            <p>RFC 7656 — A Taxonomy of Semantics and Mechanisms for Real-Time Transport Protocol (RTP) Sources</p>
+            <p>RFC 8853 — Using Simulcast in Session Description Protocol (SDP) and RTP Sessions</p>
+            <p>RFC 6464 — A Real-time Transport Protocol (RTP) Header Extension for Client-to-Mixer Audio Level Indication</p>
+            <p>LiveKit — Adaptive Stream: Bandwidth-Based Simulcast Layer Selection</p>
+            <p>mediasoup — Simulcast &amp; SVC Documentation</p>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-white/5 py-6 text-center text-xs text-gray-600 font-mono">
+        <p>0xLENS · Simulcast Phase 0–3 · v0.6.3 · 2026-03-20</p>
+    </footer>
+
+</body>
+</html>
