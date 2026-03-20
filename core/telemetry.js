@@ -228,12 +228,31 @@ export class Telemetry {
         }, ts);
       }
 
+      // 6) Audio concealment 급증 (이번 3초에 concealedSamples 480 이상 증가 = 10ms×48 프레임 이상)
+      const curConcealed = r.concealedSamples || 0;
+      const deltaConcealed = curConcealed - (prev.concealedSamples || 0);
+      if (r.kind === "audio" && deltaConcealed > 480) {
+        const curTotal = r.totalSamplesReceived || 0;
+        const deltaTotal = curTotal - (prev.totalSamplesReceived || 0);
+        const ratio = deltaTotal > 0 ? Math.round((deltaConcealed / deltaTotal) * 1000) / 10 : 0;
+        this._pushEvent({
+          type: "audio_concealment",
+          pc: "sub", kind: "audio", ssrc: r.ssrc,
+          concealedDelta: deltaConcealed,
+          totalDelta: deltaTotal,
+          ratio,
+        }, ts);
+        console.warn(`[TEL:AUDIO] concealment spike ssrc=0x${r.ssrc.toString(16)} concealed=${deltaConcealed} total=${deltaTotal} ratio=${ratio}%`);
+      }
+
       this._watchState[key] = {
         freezeCount: curFreeze,
         packetsLost: curLost,
         framesDropped: curDropped,
         decoderImpl: curDecImpl,
         fps: curFps,
+        concealedSamples: curConcealed,
+        totalSamplesReceived: r.totalSamplesReceived || 0,
       };
     });
   }
@@ -453,6 +472,11 @@ export class Telemetry {
           ? Math.round((deltaLost / deltaTotal) * 1000) / 10
           : 0;
 
+        // --- concealedSamples delta (audio 음성 보상 감지) ---
+        const prevConcealed = this._prevStats?.sub.get(`concealed_${r.ssrc}`) || 0;
+        const deltaConcealedSamples = Math.max(0, (r.concealedSamples || 0) - prevConcealed);
+        if (this._prevStats) this._prevStats.sub.set(`concealed_${r.ssrc}`, r.concealedSamples || 0);
+
         result.inbound.push({
           kind: r.kind, ssrc: r.ssrc, sourceUser,
           packetsReceived: r.packetsReceived,
@@ -473,6 +497,9 @@ export class Telemetry {
           freezeCount: r.freezeCount || 0,
           totalFreezesDuration: r.totalFreezesDuration || 0,
           concealedSamples: r.concealedSamples || 0,
+          concealedSamplesDelta: deltaConcealedSamples,
+          totalSamplesReceived: r.totalSamplesReceived || 0,
+          silentConcealedSamples: r.silentConcealedSamples || 0,
           decoderImplementation: r.decoderImplementation || null,
         });
       }
