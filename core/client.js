@@ -105,6 +105,11 @@ export class OxLensClient extends EventEmitter {
     this._inputGainCtx = null;
     this._inputGainNode = null;
     this._pendingInputGain = 1.0;
+
+    // --- Auto-Reconnect (2PC ICE 비대칭 사망 대응) ---
+    this._reconnecting = false;
+    this._joinComplete = false;  // _onJoinOk 완료 후 true
+    this.on("pc:failed", (d) => this._handlePcFailed(d));
   }
 
   // ── Public Getters ──
@@ -133,6 +138,7 @@ export class OxLensClient extends EventEmitter {
   connect() { this.sig.connect(); }
 
   disconnect() {
+    this._joinComplete = false;
     this.tel.stop();
     this.device.stop();
     this.media.teardown();
@@ -186,6 +192,7 @@ export class OxLensClient extends EventEmitter {
 
   leaveRoom() {
     if (!this._roomId) return;
+    this._joinComplete = false;
     this.sig.onLeaveRoom();
     this.sig.send(OP.ROOM_LEAVE, { room_id: this._roomId });
     this.tel.stop();
@@ -454,6 +461,57 @@ export class OxLensClient extends EventEmitter {
   }
 
   // ════════════════════════════════════════════════════════════
+  //  Auto-Reconnect (pub 또는 sub PC failed → leaveRoom + joinRoom)
+  // ════════════════════════════════════════════════════════════
+
+  async _handlePcFailed({ pc }) {
+    if (this._reconnecting || !this._roomId) return;
+
+    // 입장 중 failed → error emit (첫 연결 자체 실패, reconnect 무의미)
+    if (!this._joinComplete) {
+      console.error(`[SDK] ${pc} PC failed during join — aborting`);
+      this.emit("error", { code: 4010, msg: `${pc} ICE 연결 실패 (입장 중)` });
+      return;
+    }
+
+    // 입장 완료 후 failed → auto-reconnect
+    this._reconnecting = true;
+    const savedRoom = this._roomId;
+    const savedVideo = this._enableVideo;
+    console.warn(`[SDK] ${pc} PC failed — auto-reconnect to room=${savedRoom}`);
+    this.emit("reconnect:start", { pc, room_id: savedRoom });
+
+    // PTT: floor release 선행
+    if (this.ptt) {
+      try { this.floorRelease(); } catch (_) {}
+    }
+
+    // 정리
+    this.leaveRoom();
+
+    // 1초 대기 (서버 cleanup + WS 안정)
+    await new Promise(r => setTimeout(r, 1000));
+
+    // WS가 살아있으면 재입장
+    if (this.connState !== CONN.IDENTIFIED) {
+      console.error("[SDK] reconnect aborted — WS not identified");
+      this.emit("reconnect:fail", { pc, reason: "ws_not_ready" });
+      this._reconnecting = false;
+      return;
+    }
+
+    try {
+      await this.joinRoom(savedRoom, savedVideo);
+      console.log(`[SDK] reconnect done — room=${savedRoom}`);
+      this.emit("reconnect:done", { pc, room_id: savedRoom });
+    } catch (e) {
+      console.error(`[SDK] reconnect joinRoom failed: ${e.message}`);
+      this.emit("reconnect:fail", { pc, reason: e.message });
+    }
+    this._reconnecting = false;
+  }
+
+  // ════════════════════════════════════════════════════════════
   //  내부 조율 (Signaling → MediaSession + Telemetry + PTT)
   // ════════════════════════════════════════════════════════════
 
@@ -497,6 +555,8 @@ export class OxLensClient extends EventEmitter {
 
     // 구간 S-1: SDP 상태 1회 보고
     setTimeout(() => this.tel.sendSdpTelemetry(), 2000);
+
+    this._joinComplete = true;
   }
 
   async _onTracksUpdate(d) {

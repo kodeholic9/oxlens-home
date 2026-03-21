@@ -306,6 +306,10 @@ export class MediaSession {
         console.log("[MEDIA] ICE connected → retrying PUBLISH_TRACKS");
         this._sendPublishTracks();
       }
+      // pub PC failed → auto-reconnect 트리거
+      if (this._pubPc.iceConnectionState === "failed") {
+        this.sdk.emit("pc:failed", { pc: "publish" });
+      }
     };
     this._pubPc.onconnectionstatechange = () => {
       console.log(`[DBG:ICE] pub connectionState=${this._pubPc.connectionState}`);
@@ -370,6 +374,10 @@ export class MediaSession {
       this._subPc.oniceconnectionstatechange = () => {
         console.log(`[DBG:ICE] sub iceConnectionState=${this._subPc.iceConnectionState}`);
         this.sdk.emit("media:ice", { pc: "subscribe", state: this._subPc.iceConnectionState });
+        // sub PC failed → auto-reconnect 트리거
+        if (this._subPc.iceConnectionState === "failed") {
+          this.sdk.emit("pc:failed", { pc: "subscribe" });
+        }
       };
       this._subPc.onconnectionstatechange = () => {
         console.log(`[DBG:ICE] sub connectionState=${this._subPc.connectionState}`);

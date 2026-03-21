@@ -4,7 +4,7 @@
 import {
   $, latestTelemetry, sdpTelemetry, latestServerMetrics,
   joinedAtMap, roomCreatedAtMap, eventHistory, serverEventLog,
-  fmtElapsed, pipelineRing, aggLogRing,
+  fmtElapsed, fmtLocalTs, pipelineRing, aggLogRing,
   selectedRoom, roomsSnapshot,
 } from "./state.js";
 import { buildContractChecks } from "./render-panels.js";
@@ -14,10 +14,11 @@ import { sfuEventDescription, eventDescriptionExport } from "./render-detail.js"
 //  스냅샷 텍스트 빌드
 // ============================================================
 export function buildSnapshot() {
-  const ts = new Date().toISOString();
+  const tz = -(new Date().getTimezoneOffset() / 60);
+  const tzLabel = `UTC${tz >= 0 ? "+" : ""}${tz}`;
   const L = [];
   L.push("=== OXLENS-SFU TELEMETRY SNAPSHOT ===");
-  L.push(`timestamp: ${ts}`);
+  L.push(`timestamp: ${fmtLocalTs(Date.now())} (${tzLabel})`);
 
   // 방 필터: selectedRoom이 있으면 해당 방 참가자만
   const targetUsers = new Set();
@@ -70,7 +71,7 @@ export function buildSnapshot() {
     if (skip(uid)) return;
     const joinedAt = joinedAtMap.get(uid);
     const elapsed = joinedAt ? fmtElapsed(Date.now() - joinedAt) : "?";
-    const joinedIso = joinedAt ? new Date(joinedAt).toISOString() : "?";
+    const joinedIso = joinedAt ? fmtLocalTs(joinedAt) : "?";
     L.push(`[${uid}] joined_at=${joinedIso} elapsed=${elapsed}`);
   });
   if (selectedRoom) {
@@ -78,13 +79,13 @@ export function buildSnapshot() {
     const createdAt = roomCreatedAtMap.get(selectedRoom);
     if (createdAt) {
       const roomElapsed = fmtElapsed(Date.now() - createdAt);
-      L.push(`[room:${selectedRoom.substring(0, 8)}…] created_at=${new Date(createdAt).toISOString()} elapsed=${roomElapsed}`);
+      L.push(`[room:${selectedRoom.substring(0, 8)}…] created_at=${fmtLocalTs(createdAt)} elapsed=${roomElapsed}`);
     }
   } else {
     roomCreatedAtMap.forEach((createdAt, roomId) => {
       const roomElapsed = fmtElapsed(Date.now() - createdAt);
       L.push(
-        `[room:${roomId.substring(0, 8)}…] created_at=${new Date(createdAt).toISOString()} elapsed=${roomElapsed}`,
+        `[room:${roomId.substring(0, 8)}…] created_at=${fmtLocalTs(createdAt)} elapsed=${roomElapsed}`,
       );
     });
   }
@@ -220,13 +221,13 @@ export function buildSnapshot() {
     allEvents.sort((a, b) => a.ts - b.ts);
 
     allEvents.forEach((ev) => {
-      const isoTime = new Date(ev.ts).toISOString();
+      const localTime = fmtLocalTs(ev.ts);
       const joinedAt = joinedAtMap.get(ev._uid);
       const relTime = joinedAt ? `+${fmtElapsed(ev.ts - joinedAt)}` : "—";
       const desc =
         ev._src === "SFU" ? sfuEventDescription(ev) : eventDescriptionExport(ev);
       L.push(
-        `[${ev._src}] ${isoTime} (${relTime}) uid=${ev._uid} ${ev.type} ${desc}`,
+        `[${ev._src}] ${localTime} (${relTime}) uid=${ev._uid} ${ev.type} ${desc}`,
       );
     });
   }
@@ -315,9 +316,9 @@ export function buildSnapshot() {
       const latest = ring[ring.length - 1];
       // 방 필터: selectedRoom이 있으면 해당 방만
       if (selectedRoom && latest.roomId !== selectedRoom) return;
-      const since = latest.since ? new Date(latest.since).toISOString() : "?";
+      const since = latest.since ? fmtLocalTs(latest.since) : "?";
       const elapsed = latest.since ? fmtElapsed(Date.now() - latest.since) : "?";
-      const activeSince = latest.activeSince ? new Date(latest.activeSince).toISOString() : "?";
+      const activeSince = latest.activeSince ? fmtLocalTs(latest.activeSince) : "?";
       L.push(`[${latest.userId}@${latest.roomId.substring(0, 8)}] since=${since} (${elapsed}) room_active=${activeSince}`);
       L.push(`  [pub] in=${latest.pub_rtp_in}(+${latest.pub_rtp_in_d}) gated=${latest.pub_rtp_gated}(+${latest.pub_rtp_gated_d}) rewritten=${latest.pub_rtp_rewritten}(+${latest.pub_rtp_rewritten_d}) vid_pending=${latest.pub_video_pending}(+${latest.pub_video_pending_d}) pli=${latest.pub_pli_received}(+${latest.pub_pli_received_d})`);
       L.push(`  [sub] relayed=${latest.sub_rtp_relayed}(+${latest.sub_rtp_relayed_d}) dropped=${latest.sub_rtp_dropped}(+${latest.sub_rtp_dropped_d}) sr=${latest.sub_sr_relayed}(+${latest.sub_sr_relayed_d}) nack=${latest.sub_nack_sent}(+${latest.sub_nack_sent_d}) rtx=${latest.sub_rtx_received}(+${latest.sub_rtx_received_d})`);
@@ -339,7 +340,7 @@ export function buildSnapshot() {
   if (aggLogRing.length > 0) {
     aggLogRing.forEach((slot) => {
       if (!slot.entries || slot.entries.length === 0) return;
-      const t = new Date(slot.ts).toISOString();
+      const t = fmtLocalTs(slot.ts);
       slot.entries.forEach((e) => {
         // 방 필터: selectedRoom이 있으면 해당 방 + global만
         if (selectedRoom && e.room_id && e.room_id !== selectedRoom) return;

@@ -60,6 +60,14 @@ export function setLatestServerMetrics(v) { latestServerMetrics = v; }
 //  유틸리티
 // ============================================================
 
+/** ISO-like 로컬 시간: "2026-03-21 18:45:30" */
+export function fmtLocalTs(ms) {
+  if (!ms) return "—";
+  const d = new Date(ms);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 /** 경과 시간 포맷: ms → "1h23m", "45m12s", "3m05s", "42s" */
 export function fmtElapsed(ms) {
   if (!ms || ms < 0) return "—";

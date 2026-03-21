@@ -575,21 +575,35 @@ function bindSdkEvents(s) {
         autoGainControl: $("set-agc").dataset.on === "true",
       });
     }
-    // ICE failed → 모달
-    if (pc === "publish" && state === "failed" && isInRoom) {
-      joinPhase = null;
-      updateRoomBtn();
-      showFailModal(
-        "미디어 연결 실패",
-        "ICE 연결에 실패했습니다. 네트워크를 확인해주세요.",
-        null
-      );
-    }
+    // ICE failed → SDK 내부에서 전량 처리 (pc:failed → _handlePcFailed)
+    // 입장 중: error emit (code 4010) → 기존 error 핸들러가 모달
+    // 입장 후: reconnect:start/done/fail → 토스트
   });
 
   // connectionState 보조 로깅 (참고용)
   s.on("media:conn", ({ pc, state }) => {
     log(state === "connected" ? "ok" : "sys", `[CONN] ${pc} ${state}`);
+  });
+
+  // ── Auto-Reconnect (2PC ICE 비대칭 사망 대응) ──
+  s.on("reconnect:start", ({ pc }) => {
+    log("err", `[RECONNECT] ${pc} PC failed — 재연결 시작`);
+    showToast("warn", `${pc} 연결 끊김 — 재연결 중...`, 0);
+  });
+  s.on("reconnect:done", ({ pc }) => {
+    log("ok", `[RECONNECT] 재연결 성공 (${pc})`);
+    // 진행 중인 reconnect 토스트 제거 + 성공 토스트
+    document.querySelectorAll(".toast-enter, .toast-exit").forEach(el => {
+      if (el.textContent.includes("재연결 중")) el.remove();
+    });
+    showToast("ok", "재연결 완료", 3000);
+  });
+  s.on("reconnect:fail", ({ pc, reason }) => {
+    log("err", `[RECONNECT] 재연결 실패: ${reason}`);
+    document.querySelectorAll(".toast-enter, .toast-exit").forEach(el => {
+      if (el.textContent.includes("재연결 중")) el.remove();
+    });
+    showToast("err", `재연결 실패: ${reason}`, 5000);
   });
 
   // ── Track State (mute/unmute 브로드캐스트) ──
@@ -718,7 +732,7 @@ function bindSdkEvents(s) {
     // 또는 서버 응답 에러 (op=ROOM_JOIN)
     // code 0 + "미디어 획득 실패" = getUserMedia 거부
     const isMediaError = d.code === 0 && d.msg?.includes("미디어 획득 실패");
-    const isJoinError = d.code === 4001 || d.code === 4002 || d.op === 11 || isMediaError;
+    const isJoinError = d.code === 4001 || d.code === 4002 || d.code === 4010 || d.op === 11 || isMediaError;
     if (isJoinError && (joinPhase || !isInRoom)) {
       joinPhase = null;
       updateRoomBtn();
