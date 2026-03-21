@@ -316,20 +316,26 @@ export class PowerFsm {
     // WARM 진입 전 현재 카메라 설정 저장
     this._saveVideoConstraints();
 
-    for (const kind of ["audio", "video"]) {
-      if (this._state !== PTT_POWER.WARM) return;
-      const sender = kind === "audio" ? this.sdk.media.audioSender : this.sdk.media.videoSender;
-      if (!sender) continue;
+    // audio: enabled=false만 (장치 유지, 즉시 복귀 가능 — 배터리 소모 미미)
+    const audioSender = this.sdk.media.audioSender;
+    if (audioSender?.track && !audioSender.track._dummyCtx) {
+      audioSender.track.enabled = false;
+      console.log("[POWER] WARM: audio enabled=false (device kept alive)");
+    }
 
-      const dummy = kind === "audio" ? this._createAudioDummyTrack() : this._createVideoDummyTrack();
-      this._dummyTracks[kind] = dummy;
-
-      const orig = sender.track;
+    // video: dummy 교체 (카메라 OFF — 배터리 절약 핵심)
+    if (this._state !== PTT_POWER.WARM) return;
+    const videoSender = this.sdk.media.videoSender;
+    if (videoSender) {
+      const dummy = this._createVideoDummyTrack();
+      this._dummyTracks.video = dummy;
+      const orig = videoSender.track;
       if (orig) {
         orig.stop();
         if (this.sdk.media.stream) this.sdk.media.stream.removeTrack(orig);
       }
-      await sender.replaceTrack(dummy);
+      await videoSender.replaceTrack(dummy);
+      console.log("[POWER] WARM: video → dummy (camera OFF)");
     }
   }
 
@@ -349,65 +355,81 @@ export class PowerFsm {
   }
 
   async _restoreTracks() {
-    const videoConstraints = this._buildVideoConstraints();
-
-    let newStream;
-    try {
-      newStream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: videoConstraints,
-      });
-    } catch (e) {
-      // 저장된 deviceId로 실패 → 기본 카메라로 fallback
-      console.warn(`[POWER] getUserMedia with saved constraints failed: ${e.message}, trying default`);
+    // ── Phase 1: Audio 즉시 복구 ──
+    const audioSender = this.sdk.media.audioSender;
+    if (audioSender?.track && !audioSender.track._dummyCtx && !audioSender.track._dummyCanvas) {
+      // WARM: 장치 살아있음 → enabled=true만
+      audioSender.track.enabled = true;
+      console.log("[POWER] audio restored (enabled=true, instant)");
+    } else {
+      // COLD: 장치 없음 → getUserMedia({ audio }) 먼저
       try {
-        const mc = this.sdk.mediaConfig;
-        newStream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: { width: { ideal: mc.width }, height: { ideal: mc.height }, frameRate: { ideal: mc.frameRate } },
-        });
-      } catch (e2) {
-        try {
-          newStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-          this.sdk.emit("media:fallback", { dropped: "video", reason: e2.message });
-        } catch (e3) {
-          this.sdk.emit("error", { code: 0, msg: `PTT wake 미디어 복원 실패: ${e3.message}` });
-          return;
+        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (this._state !== PTT_POWER.HOT) { audioStream.getTracks().forEach(t => t.stop()); return; }
+        const newAudioTrack = audioStream.getAudioTracks()[0];
+        if (newAudioTrack && audioSender) {
+          this._destroyDummyTrack("audio");
+          await audioSender.replaceTrack(newAudioTrack);
+          if (this.sdk.media.stream) {
+            this.sdk.media.stream.getAudioTracks().forEach(t => this.sdk.media.stream.removeTrack(t));
+            this.sdk.media.stream.addTrack(newAudioTrack);
+          }
+          console.log("[POWER] audio restored (getUserMedia, COLD→HOT)");
         }
+      } catch (e) {
+        console.error(`[POWER] audio restore failed: ${e.message}`);
+        this.sdk.emit("error", { code: 0, msg: `PTT wake 마이크 복원 실패: ${e.message}` });
+        return;
       }
     }
 
-    // await 사이 전이 방어
-    if (this._state !== PTT_POWER.HOT || !this.sdk.media.audioSender) {
-      newStream.getTracks().forEach(t => t.stop());
+    // ── Phase 2: Video 비동기 복구 (audio는 이미 살아있음) ──
+    if (this._state !== PTT_POWER.HOT) return;
+    const videoSender = this.sdk.media.videoSender;
+    if (!videoSender) {
+      this._savedVideoConstraints = null;
+      this.sdk.emit("media:local", this.sdk.media.stream);
       return;
     }
 
-    let videoRestored = false;
-    for (const kind of ["audio", "video"]) {
-      this._destroyDummyTrack(kind);
-      const sender = kind === "audio" ? this.sdk.media.audioSender : this.sdk.media.videoSender;
-      if (!sender) continue;
-
-      const newTrack = kind === "audio"
-        ? newStream.getAudioTracks()[0]
-        : newStream.getVideoTracks()[0];
-      if (!newTrack) continue;
-
-      await sender.replaceTrack(newTrack);
-      if (this._state !== PTT_POWER.HOT) return;
-
-      if (this.sdk.media.stream) {
-        const old = kind === "audio" ? this.sdk.media.stream.getAudioTracks() : this.sdk.media.stream.getVideoTracks();
-        old.forEach(t => this.sdk.media.stream.removeTrack(t));
-        this.sdk.media.stream.addTrack(newTrack);
+    const videoConstraints = this._buildVideoConstraints();
+    let videoStream;
+    try {
+      videoStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: videoConstraints });
+    } catch (e) {
+      console.warn(`[POWER] video restore with saved constraints failed: ${e.message}, trying default`);
+      try {
+        const mc = this.sdk.mediaConfig;
+        videoStream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { width: { ideal: mc.width }, height: { ideal: mc.height }, frameRate: { ideal: mc.frameRate } },
+        });
+      } catch (e2) {
+        console.warn(`[POWER] video restore failed: ${e2.message} (audio-only)`);
+        this.sdk.emit("media:fallback", { dropped: "video", reason: e2.message });
+        this._savedVideoConstraints = null;
+        this.sdk.emit("media:local", this.sdk.media.stream);
+        return;
       }
-      if (kind === "video") videoRestored = true;
     }
 
-    this._savedVideoConstraints = null;  // 복원 완료 → 캐시 클리어
+    if (this._state !== PTT_POWER.HOT) { videoStream.getTracks().forEach(t => t.stop()); return; }
+
+    const newVideoTrack = videoStream.getVideoTracks()[0];
+    if (newVideoTrack) {
+      this._destroyDummyTrack("video");
+      await videoSender.replaceTrack(newVideoTrack);
+      if (this._state !== PTT_POWER.HOT) return;
+      if (this.sdk.media.stream) {
+        this.sdk.media.stream.getVideoTracks().forEach(t => this.sdk.media.stream.removeTrack(t));
+        this.sdk.media.stream.addTrack(newVideoTrack);
+      }
+      console.log("[POWER] video restored (getUserMedia)");
+    }
+
+    this._savedVideoConstraints = null;
     this.sdk.emit("media:local", this.sdk.media.stream);
-    if (videoRestored) this._sendCameraReady();
+    if (newVideoTrack) this._sendCameraReady();
   }
 
   // ── 서버 통신 헬퍼 ──

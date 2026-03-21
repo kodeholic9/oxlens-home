@@ -24,8 +24,8 @@ export const MAX_HISTORY = 100;
 export const telemetryHistory = new Map();
 export const sfuHistory = [];
 
-// 스냅샷 로테이션 ring buffer (최근 20개)
-export const SNAPSHOT_RING_SIZE = 20;
+// 스냅샷 로테이션 ring buffer (최근 50개, 3초×50 = 2.5분)
+export const SNAPSHOT_RING_SIZE = 50;
 export const snapshotRing = new Map(); // user_id → { ring: [], cursor: 0 }
 export const sfuSnapshotRing = [];     // server_metrics ring
 
@@ -45,7 +45,7 @@ export const serverEventLog = [];
 // key: "room_id:user_id", value: { ring: [{ts, ...counters}], prev: {...} }
 export const pipelineRing = new Map();
 
-// AggLogger ring buffer (3초×20 = 1분치)
+// AggLogger ring buffer (3초×50 = 2.5분치)
 export const aggLogRing = [];
 
 // ============================================================

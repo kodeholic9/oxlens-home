@@ -1429,9 +1429,9 @@ _restoreAudioPref();
 /** 셈렉트 값을 읽어 SDK config 객체로 변환 (localStorage 사용 안 함 — 테스트용 설정) */
 function _readPttPowerSelects() {
   return {
-    hotStandbyMs: (parseInt($("set-ptt-hot-standby").value) || 10) * 1000,
-    warmMs: (parseInt($("set-ptt-warm").value) || 60) * 1000,
-    coldMs: (parseInt($("set-ptt-cold").value) || 0) * 1000,
+    hotStandbyMs: (parseInt($("set-ptt-hot-standby").value) || 1) * 1000,
+    warmMs: (parseInt($("set-ptt-warm").value) || 10) * 1000,
+    coldMs: (parseInt($("set-ptt-cold").value) || 10) * 1000,
   };
 }
 
