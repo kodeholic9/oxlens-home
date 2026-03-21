@@ -572,7 +572,7 @@ export class Telemetry {
       // ── SDK 상태 ──
       roomMode:     sdk.roomMode,
       floorState:   sdk.floorState,
-      pttTrackState: { audio: sdk._pttTrackState.audio, video: sdk._pttTrackState.video },
+      pttPowerState: sdk.pttPowerState,
       userVideoOff: sdk.userVideoOff,
       tabVisible:   document.visibilityState === "visible",
 

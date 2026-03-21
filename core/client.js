@@ -6,7 +6,7 @@
 //
 // Mute 제어 이원화:
 //   Conference 모드: 3-state 상태 머신 (UNMUTED → SOFT → HARD)
-//   PTT 모드:       선언적 계산 (floor + videoOff → _applyPttMediaState)
+//   PTT 모드:       Power State FSM (HOT → HOT-STANDBY → WARM → COLD)
 //                    audio=floor가 소유, video=사용자 toggle 허용
 //
 // 모듈 구조:
@@ -17,7 +17,7 @@
 //   telemetry.js      → stats 수집 + 서버 전송
 //   sdp-builder.js    → fake SDP 조립 (기존 유지)
 
-import { SDK_VERSION, OP, CONN, MUTE, FLOOR, MUTE_ESCALATION_MS, DEVICE_KIND } from "./constants.js";
+import { SDK_VERSION, OP, CONN, MUTE, FLOOR, MUTE_ESCALATION_MS, DEVICE_KIND, PTT_POWER } from "./constants.js";
 import { Signaling } from "./signaling.js";
 import { MediaSession } from "./media-session.js";
 import { Telemetry } from "./telemetry.js";
@@ -92,11 +92,12 @@ export class OxLensClient extends EventEmitter {
     this._dummyTracks = { audio: null, video: null };
     this._unmuteGeneration = { audio: 0, video: 0 };
 
-    // --- PTT 선언적 미디어 제어 ---
-    // floor(TALKING 여부) + _userVideoOff 두 변수로 audio/video 상태 결정
-    // 트랙 상태: "live" | "soft_off" | "hard_off"
-    this._pttTrackState = { audio: "live", video: "live" };
-    this._pttTimers = { audio: null, video: null };
+    // --- PTT Power State FSM (HOT / HOT-STANDBY / WARM / COLD) ---
+    // _pttPower 변경은 오직 _setPttPower() 만 가능
+    this._pttPower = PTT_POWER.HOT;
+    this._pttPowerTimer = null;     // 단일 타이머: 다음 전이만 예약
+    this._pttPowerConfig = { hotStandbyMs: 10_000, warmMs: 60_000, coldMs: 0 };
+    this._pttTalking = false;
     this._userVideoOff = false;
 
     // Simulcast
@@ -206,158 +207,237 @@ export class OxLensClient extends EventEmitter {
 
   // ── Floor Control (MCPTT/MBCP) ──
 
-  floorRequest() { this.sig.floorRequest(); }
+  floorRequest() {
+    this._setPttPower(PTT_POWER.HOT);
+    this.sig.floorRequest();
+  }
   floorRelease() { this.sig.floorRelease(); }
 
-  static PTT_HARD_MUTE_MS = 60_000; // soft_off 60초 후 hard_off 에스컬레이션 (OxLensClient.PTT_HARD_MUTE_MS)
+  // ── PTT Power State 공개 API ──
+
+  set pttPowerConfig(cfg) {
+    if (cfg.hotStandbyMs !== undefined) this._pttPowerConfig.hotStandbyMs = cfg.hotStandbyMs;
+    if (cfg.warmMs !== undefined) this._pttPowerConfig.warmMs = cfg.warmMs;
+    if (cfg.coldMs !== undefined) this._pttPowerConfig.coldMs = cfg.coldMs;
+    console.log(`[SDK] pttPowerConfig: HOT-STANDBY=${this._pttPowerConfig.hotStandbyMs}ms WARM=${this._pttPowerConfig.warmMs}ms COLD=${this._pttPowerConfig.coldMs}ms`);
+  }
+  get pttPowerConfig() { return { ...this._pttPowerConfig }; }
+  get pttPowerState() { return this._pttPower; }
 
   // ════════════════════════════════════════════════════════════
-  //  PTT 선언적 미디어 제어
+  //  PTT Power State FSM (HOT → HOT-STANDBY → WARM → COLD)
   //
-  //  원칙: floor(TALKING 여부) + _userVideoOff 두 변수만으로 결정.
-  //        pttMute/pttUnmute 같은 명령형 함수 없음.
-  //        _applyPttMediaState()가 "지금 뭐가 켜져야 하나" 매번 계산.
+  //  단일 진입점: _setPttPower(next)
+  //  - _pttPower 변경은 오직 이 함수만 가능
+  //  - 타이머는 하나만: 현재 상태의 다음 전이
+  //  - async 부수효과는 전이 후 상태 재확인으로 안전
   //
-  //  트랙 상태 전이:
-  //    "live"     → "soft_off"  (track.enabled=false, 즉시)
-  //    "soft_off" → "live"      (track.enabled=true, 즉시)
-  //    "soft_off" → "hard_off"  (60초 후 dummy track 교체)
-  //    "hard_off" → "live"      (getUserMedia + replaceTrack)
+  //  하강: HOT →(T1)→ HOT-STANDBY →(T2)→ WARM →(T3)→ COLD
+  //  상승: 어떤 상태든 → HOT (트리거 발생 시)
   // ════════════════════════════════════════════════════════════
 
-  /** SDK 내부에서 floor 이벤트 → 미디어 자동 제어 바인딩 */
+  /** floor 이벤트 → Power State FSM 바인딩 */
   _bindPttMediaControl() {
-    const apply = () => this._applyPttMediaState();
-    this.on("floor:granted", apply);
-    this.on("floor:idle", apply);
-    this.on("floor:revoke", apply);
-    this.on("floor:released", apply);
+    this.on("floor:granted", () => {
+      this._pttTalking = true;
+      this._setPttPower(PTT_POWER.HOT);
+    });
+    this.on("floor:taken",    () => this._setPttPower(PTT_POWER.HOT));
+    this.on("floor:released", () => { this._pttTalking = false; this._setPttPower(PTT_POWER.HOT); });
+    this.on("floor:revoke",   () => { this._pttTalking = false; this._setPttPower(PTT_POWER.HOT); });
+    this.on("floor:idle",     () => { this._pttTalking = false; this._setPttPower(PTT_POWER.HOT); });
   }
 
   /**
-   * 선언적 PTT 미디어 상태 적용.
-   * floor 상태 + videoOff 두 변수만 보고 audio/video on/off 계산.
+   * PTT Power State 단일 진입점.
+   * _pttPower 변경은 오직 여기서만 일어난다.
    */
-  async _applyPttMediaState() {
+  _setPttPower(next) {
     if (this.roomMode !== "ptt") return;
+    const prev = this._pttPower;
+    if (prev === next && next !== PTT_POWER.HOT) return;  // HOT은 타이머 리셋을 위해 재진입 허용
 
-    const talking = this.floorState === FLOOR.TALKING;
-    const wantAudio = talking;
-    const wantVideo = talking && !this._userVideoOff;
+    // 1. 타이머 취소 (항상)
+    clearTimeout(this._pttPowerTimer);
+    this._pttPowerTimer = null;
 
-    console.log(`[SDK] _applyPttMediaState: talking=${talking} videoOff=${this._userVideoOff} → audio=${wantAudio} video=${wantVideo}`);
+    // 2. 상태 변경 (유일한 변경점)
+    this._pttPower = next;
 
-    await this._setPttTrack("audio", wantAudio);
-    await this._setPttTrack("video", wantVideo);
+    // 3. 진입 액션 (async 부수효과)
+    this._onPowerEnter(prev, next);
+
+    // 4. 다음 전이 타이머 예약 (하강 + 비발화 시만)
+    if (!this._pttTalking) {
+      this._schedulePowerDown();
+    }
+
+    // 5. 이벤트 + 로그
+    if (prev !== next) {
+      console.log(`[SDK] power: ${prev} \u2192 ${next}`);
+      this.emit("ptt:power", { state: next, prev });
+    }
   }
 
   /**
-   * PTT 단일 트랙 on/off 전이.
-   *   wantOn=true:  soft_off → enabled=true (즉시) / hard_off → getUserMedia
-   *   wantOn=false: live → enabled=false + 60s 에스컬레이션 타이머
+   * 전이 진입 액션.
+   * 동기 액션은 즉시, async 액션은 완료 후 상태 재확인.
    */
-  async _setPttTrack(kind, wantOn) {
-    const sender = kind === "audio" ? this.media.audioSender : this.media.videoSender;
-    if (!sender) return;
-
-    const cur = this._pttTrackState[kind];
-
-    if (wantOn && cur !== "live") {
-      // ── Turn ON ──
-      clearTimeout(this._pttTimers[kind]);
-      this._pttTimers[kind] = null;
-
-      if (cur === "hard_off") {
-        await this._pttHardUnmute(kind);
-      } else {
-        // soft_off → 즉시 복귀
-        if (sender.track) sender.track.enabled = true;
+  _onPowerEnter(prev, next) {
+    // ── 상승 (X → HOT) ──
+    if (next === PTT_POWER.HOT) {
+      if (prev === PTT_POWER.HOT_STANDBY) {
+        // 즉시 복귀: track.enabled = true
+        this._pttSetTracksEnabled(true);
+      } else if (prev === PTT_POWER.WARM || prev === PTT_POWER.COLD) {
+        // async 복귀: getUserMedia + replaceTrack
+        this._pttRestoreTracks();
       }
-      this._pttTrackState[kind] = "live";
-      console.log(`[SDK] _setPttTrack: ${kind} → live (from ${cur})`);
-
-    } else if (!wantOn && cur === "live") {
-      // ── Turn OFF (soft) ──
-      if (sender.track) sender.track.enabled = false;
-      this._pttTrackState[kind] = "soft_off";
-      console.log(`[SDK] _setPttTrack: ${kind} → soft_off`);
-
-      // 60초 후 hard_off 에스컬레이션
-      clearTimeout(this._pttTimers[kind]);
-      this._pttTimers[kind] = setTimeout(() => {
-        this._pttHardMuteEscalate(kind);
-      }, OxLensClient.PTT_HARD_MUTE_MS);
-    }
-    // wantOn && cur === "live" → 이미 켜짐, noop
-    // !wantOn && cur !== "live" → 이미 꺼짐, noop
-  }
-
-  /** 60초 에스컬레이션: soft_off → hard_off (dummy track 교체) */
-  async _pttHardMuteEscalate(kind) {
-    if (this._pttTrackState[kind] !== "soft_off") return;
-
-    const sender = kind === "audio" ? this.media.audioSender : this.media.videoSender;
-    if (!sender) return;
-
-    const dummy = kind === "audio" ? this._createAudioDummyTrack() : this._createVideoDummyTrack();
-    this._dummyTracks[kind] = dummy;
-
-    const originalTrack = sender.track;
-    if (originalTrack) {
-      originalTrack.stop();
-      if (this.media.stream) this.media.stream.removeTrack(originalTrack);
+      // 발화 중이면 트랙 활성화
+      if (this._pttTalking) this._pttSetTracksEnabled(true);
+      return;
     }
 
-    await sender.replaceTrack(dummy);
-    this._pttTrackState[kind] = "hard_off";
-    console.log(`[SDK] PTT hard mute escalation: ${kind}`);
-    this.emit("ptt:escalated", { kind, phase: "hard" });
+    // ── 하강 ──
+    if (next === PTT_POWER.HOT_STANDBY) {
+      this._pttSetTracksEnabled(false);
+    } else if (next === PTT_POWER.WARM) {
+      this._pttReplaceDummy();  // async, 완료 후 상태 확인
+    } else if (next === PTT_POWER.COLD) {
+      this._pttReplaceNull();   // async, 완료 후 상태 확인
+    }
   }
 
-  /** hard_off → live 복귀 (getUserMedia + replaceTrack) */
-  async _pttHardUnmute(kind) {
-    const sender = kind === "audio" ? this.media.audioSender : this.media.videoSender;
-    if (!sender) return;
+  /** 현재 상태 기준으로 다음 하강 타이머 예약 */
+  _schedulePowerDown() {
+    const { HOT, HOT_STANDBY, WARM } = PTT_POWER;
+    const cfg = this._pttPowerConfig;
+    let delayMs = 0;
+    let target = null;
 
-    const gen = ++this._unmuteGeneration[kind];
+    if (this._pttPower === HOT) {
+      delayMs = cfg.hotStandbyMs;
+      target = HOT_STANDBY;
+    } else if (this._pttPower === HOT_STANDBY) {
+      delayMs = cfg.warmMs;
+      target = WARM;
+    } else if (this._pttPower === WARM && cfg.coldMs > 0) {
+      delayMs = cfg.coldMs;
+      target = PTT_POWER.COLD;
+    }
+
+    if (!target) return;  // COLD 또는 coldMs===0 → 더 이상 하강 없음
+
+    if (delayMs <= 0) {
+      // 즉시 전이
+      this._setPttPower(target);
+    } else {
+      this._pttPowerTimer = setTimeout(() => this._setPttPower(target), delayMs);
+    }
+  }
+
+  // ── Power State 부수효과 (동기) ──
+
+  /** 모든 sender track의 enabled 제어 */
+  _pttSetTracksEnabled(on) {
+    for (const kind of ["audio", "video"]) {
+      if (on && kind === "video" && this._userVideoOff) continue;
+      const sender = kind === "audio" ? this.media.audioSender : this.media.videoSender;
+      if (sender?.track && !sender.track._dummyCtx && !sender.track._dummyCanvas) {
+        sender.track.enabled = on;
+      }
+    }
+  }
+
+  // ── Power State 부수효과 (async — 완료 후 상태 재확인) ──
+
+  /** HOT-STANDBY → WARM: dummy track 교체 */
+  async _pttReplaceDummy() {
+    for (const kind of ["audio", "video"]) {
+      if (this._pttPower !== PTT_POWER.WARM) return;  // 상태 변경됨 → 중단
+      const sender = kind === "audio" ? this.media.audioSender : this.media.videoSender;
+      if (!sender) continue;
+
+      const dummy = kind === "audio" ? this._createAudioDummyTrack() : this._createVideoDummyTrack();
+      this._dummyTracks[kind] = dummy;
+
+      const orig = sender.track;
+      if (orig) {
+        orig.stop();
+        if (this.media.stream) this.media.stream.removeTrack(orig);
+      }
+      await sender.replaceTrack(dummy);
+    }
+  }
+
+  /** WARM → COLD: replaceTrack(null) */
+  async _pttReplaceNull() {
+    for (const kind of ["audio", "video"]) {
+      if (this._pttPower !== PTT_POWER.COLD) return;  // 상태 변경됨 → 중단
+      const sender = kind === "audio" ? this.media.audioSender : this.media.videoSender;
+      if (!sender) continue;
+      this._destroyDummyTrack(kind);
+      await sender.replaceTrack(null);
+    }
+  }
+
+  /** WARM/COLD → HOT: getUserMedia로 장치 복원 */
+  async _pttRestoreTracks() {
     const mc = this.mediaConfig;
-    const constraints = kind === "audio"
-      ? { audio: true, video: false }
-      : { audio: false, video: { width: { ideal: mc.width }, height: { ideal: mc.height }, frameRate: { ideal: mc.frameRate } } };
 
     let newStream;
     try {
-      newStream = await navigator.mediaDevices.getUserMedia(constraints);
+      newStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: { width: { ideal: mc.width }, height: { ideal: mc.height }, frameRate: { ideal: mc.frameRate } },
+      });
     } catch (e) {
-      this.emit("error", { code: 0, msg: `PTT unmute 미디어 획득 실패: ${e.message}` });
+      try {
+        newStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        this.emit("media:fallback", { dropped: "video", reason: e.message });
+      } catch (e2) {
+        this.emit("error", { code: 0, msg: `PTT wake 미디어 복원 실패: ${e2.message}` });
+        return;
+      }
+    }
+
+    // 상태 확인: await 사이 다른 전이가 발생했으면 중단
+    if (this._pttPower !== PTT_POWER.HOT || !this.media.audioSender) {
+      newStream.getTracks().forEach(t => t.stop());
       return;
     }
 
-    const newTrack = kind === "audio" ? newStream.getAudioTracks()[0] : newStream.getVideoTracks()[0];
+    let videoRestored = false;
+    for (const kind of ["audio", "video"]) {
+      this._destroyDummyTrack(kind);
+      const sender = kind === "audio" ? this.media.audioSender : this.media.videoSender;
+      if (!sender) continue;
 
-    // 세대 가드: 비동기 대기 중 disconnect/teardown이 끼어들었으면 중단
-    if (this._unmuteGeneration[kind] !== gen || !this.media.audioSender) {
-      console.warn(`[SDK] PTT hard unmute aborted (teardown during getUserMedia): kind=${kind}`);
-      newTrack.stop();
-      return;
+      const newTrack = kind === "audio"
+        ? newStream.getAudioTracks()[0]
+        : newStream.getVideoTracks()[0];
+      if (!newTrack) continue;
+
+      await sender.replaceTrack(newTrack);
+      if (this._pttPower !== PTT_POWER.HOT) return;  // await 사이 전이
+
+      if (this.media.stream) {
+        const old = kind === "audio" ? this.media.stream.getAudioTracks() : this.media.stream.getVideoTracks();
+        old.forEach(t => this.media.stream.removeTrack(t));
+        this.media.stream.addTrack(newTrack);
+      }
+      if (kind === "video") videoRestored = true;
     }
 
-    this._destroyDummyTrack(kind);
-    await sender.replaceTrack(newTrack);
+    this.emit("media:local", this.media.stream);
+    if (videoRestored) this._sendCameraReady();
+  }
 
-    const stream = this.media.stream;
-    if (stream) {
-      const oldTracks = kind === "audio" ? stream.getAudioTracks() : stream.getVideoTracks();
-      oldTracks.forEach((t) => stream.removeTrack(t));
-      stream.addTrack(newTrack);
-    }
-
-    this.emit("media:local", stream);
-
-    // video hard unmute → CAMERA_READY (서버가 PLI 2발 + VIDEO_RESUMED 브로드캐스트)
-    if (kind === "video") this._sendCameraReady();
-
-    console.log(`[SDK] PTT hard unmute: ${kind}`);
+  /** PTT 모드 초기 미디어 상태 적용 (입장 직후 floor=IDLE → power-down 시작) */
+  _applyPttMediaState() {
+    if (this.roomMode !== "ptt") return;
+    this._pttTalking = false;
+    this._setPttPower(PTT_POWER.HOT);  // HOT에서 power-down 시작
   }
 
   // ════════════════════════════════════════════════════════════
@@ -372,9 +452,12 @@ export class OxLensClient extends EventEmitter {
         console.log("[SDK] toggleMute(audio) blocked — PTT floor controls audio");
         return;
       }
-      // video: _userVideoOff 반전 → 미디어 상태 재계산
+      // video: _userVideoOff 반전 → 현재 상태에 따라 트랙 제어
       this._userVideoOff = !this._userVideoOff;
-      await this._applyPttMediaState();
+      const sender = this.media.videoSender;
+      if (sender?.track && this._pttPower === PTT_POWER.HOT) {
+        sender.track.enabled = !this._userVideoOff;
+      }
       this._notifyMuteServer("video", this._userVideoOff);
       this.emit("mute:changed", { kind: "video", muted: this._userVideoOff, phase: "ptt" });
       console.log(`[SDK] PTT video toggle: videoOff=${this._userVideoOff}`);
@@ -559,11 +642,11 @@ export class OxLensClient extends EventEmitter {
     this._destroyDummyTrack("audio");
     this._destroyDummyTrack("video");
     this._unmuteGeneration = { audio: 0, video: 0 };
-    // PTT state reset — "live"로 초기화 (재입장 시 _onJoinOk에서 _applyPttMediaState 호출)
-    clearTimeout(this._pttTimers.audio);
-    clearTimeout(this._pttTimers.video);
-    this._pttTimers = { audio: null, video: null };
-    this._pttTrackState = { audio: "live", video: "live" };
+    // PTT Power State 리셋
+    clearTimeout(this._pttPowerTimer);
+    this._pttPowerTimer = null;
+    this._pttPower = PTT_POWER.HOT;
+    this._pttTalking = false;
     this._userVideoOff = false;
     this._simulcastEnabled = false;
   }
@@ -609,6 +692,9 @@ export class OxLensClient extends EventEmitter {
 
   /** signaling._handleEvent(TRACKS_UPDATE) → 여기로 */
   async _onTracksUpdate(d) {
+    // PTT power state: tracks update → wake to HOT
+    if (this.roomMode === "ptt") this._setPttPower(PTT_POWER.HOT);
+
     const { action, tracks } = d;
 
     try {
@@ -647,4 +733,4 @@ export class OxLensClient extends EventEmitter {
 // ============================================================
 //  Exports — app.js 하위 호환
 // ============================================================
-export { SDK_VERSION, CONN, OP, MUTE, FLOOR, DEVICE_KIND };
+export { SDK_VERSION, CONN, OP, MUTE, FLOOR, DEVICE_KIND, PTT_POWER };

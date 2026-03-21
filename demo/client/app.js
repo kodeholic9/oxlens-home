@@ -2,7 +2,7 @@
 // livechat-client/app.js — Light LiveChat 클라이언트 UI
 // SDK 이벤트 구독으로만 동작 — 비즈니스 로직 Zero
 
-import { OxLensClient, CONN, FLOOR, SDK_VERSION, DEVICE_KIND } from "../../core/client.js";
+import { OxLensClient, CONN, FLOOR, SDK_VERSION, DEVICE_KIND, PTT_POWER } from "../../core/client.js";
 
 // ============================================================
 //  DOM
@@ -1120,6 +1120,7 @@ function _doConnect() {
   const userId = $("user-id").value.trim() || undefined;
   const mediaCfg = getMediaSettings();
   sdk = new OxLensClient({ url, userId, token: "kodeholic", ...mediaCfg });
+  sdk.pttPowerConfig = _readPttPowerSelects();
   bindSdkEvents(sdk);
   isConnecting = true;
   sdk.connect();
@@ -1398,6 +1399,64 @@ _initToggleBtn("set-ns", "ns");
 _initToggleBtn("set-aec", "aec");
 _initToggleBtn("set-agc", "agc");
 _restoreAudioPref();
+
+// ============================================================
+//  PTT Power State 설정 (HOT-STANDBY / WARM / COLD 진입 타이머)
+// ============================================================
+
+/** 셈렉트 값을 읽어 SDK config 객체로 변환 (localStorage 사용 안 함 — 테스트용 설정) */
+function _readPttPowerSelects() {
+  return {
+    hotStandbyMs: (parseInt($("set-ptt-hot-standby").value) || 10) * 1000,
+    warmMs: (parseInt($("set-ptt-warm").value) || 60) * 1000,
+    coldMs: (parseInt($("set-ptt-cold").value) || 0) * 1000,
+  };
+}
+
+$("set-ptt-hot-standby").onchange = () => {
+  const cfg = _readPttPowerSelects();
+  if (sdk) sdk.pttPowerConfig = cfg;
+  log("sys", `PTT HOT-STANDBY: ${cfg.hotStandbyMs}ms`);
+};
+
+$("set-ptt-warm").onchange = () => {
+  const cfg = _readPttPowerSelects();
+  if (sdk) sdk.pttPowerConfig = cfg;
+  log("sys", `PTT WARM: ${cfg.warmMs}ms`);
+};
+
+$("set-ptt-cold").onchange = () => {
+  const cfg = _readPttPowerSelects();
+  if (sdk) sdk.pttPowerConfig = cfg;
+  log("sys", `PTT COLD: ${cfg.coldMs === 0 ? "OFF" : cfg.coldMs + "ms"}`);
+};
+
+// ============================================================
+//  PTT Wake 트리거: visibilitychange / online
+// ============================================================
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && sdk && isInRoom && currentRoomMode === "ptt") {
+    sdk._setPttPower(PTT_POWER.HOT);
+    log("sys", "[PTT:WAKE] visibilitychange → visible");
+  }
+});
+
+window.addEventListener("online", () => {
+  if (sdk && isInRoom && currentRoomMode === "ptt") {
+    sdk._setPttPower(PTT_POWER.HOT);
+    log("sys", "[PTT:WAKE] network online");
+  }
+});
+
+if (navigator.connection) {
+  navigator.connection.addEventListener("change", () => {
+    if (sdk && isInRoom && currentRoomMode === "ptt") {
+      sdk._setPttPower(PTT_POWER.HOT);
+      log("sys", `[PTT:WAKE] network change (type=${navigator.connection.effectiveType})`);
+    }
+  });
+}
 
 // ============================================================
 //  Init

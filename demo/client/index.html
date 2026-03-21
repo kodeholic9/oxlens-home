@@ -267,8 +267,62 @@
             <button id="set-agc" class="px-2 py-0.5 rounded text-xs font-mono font-medium border transition-colors bg-green-500/20 text-green-400 border-green-500/30" data-on="true">ON</button>
           </div>
         </div>
+        <!-- PTT Power State 설정 -->
+        <div class="pt-2 border-t border-white/5 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-gray-400 font-medium flex items-center gap-1.5">
+              <i class="ph ph-hand-tap text-sm text-brand-cyan/70"></i>
+              HOT-STANDBY 진입
+            </span>
+            <select id="set-ptt-hot-standby" class="bg-brand-dark border border-white/10 rounded px-2 py-1 text-xs text-white font-mono w-20">
+              <option value="0">0s</option>
+              <option value="10" selected>10s</option>
+              <option value="20">20s</option>
+              <option value="30">30s</option>
+              <option value="40">40s</option>
+              <option value="50">50s</option>
+              <option value="60">60s</option>
+              <option value="70">70s</option>
+              <option value="80">80s</option>
+              <option value="90">90s</option>
+              <option value="100">100s</option>
+              <option value="110">110s</option>
+              <option value="120">120s</option>
+            </select>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-gray-400 font-medium flex items-center gap-1.5">
+              <i class="ph ph-battery-medium text-sm text-brand-cyan/70"></i>
+              WARM 진입
+            </span>
+            <select id="set-ptt-warm" class="bg-brand-dark border border-white/10 rounded px-2 py-1 text-xs text-white font-mono w-20">
+              <option value="30">30s</option>
+              <option value="60" selected>60s</option>
+              <option value="120">120s</option>
+              <option value="180">180s</option>
+              <option value="600">600s</option>
+            </select>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-gray-400 font-medium flex items-center gap-1.5">
+              <i class="ph ph-battery-low text-sm text-brand-cyan/70"></i>
+              COLD 진입
+            </span>
+            <select id="set-ptt-cold" class="bg-brand-dark border border-white/10 rounded px-2 py-1 text-xs text-white font-mono w-20">
+              <option value="0" selected>OFF</option>
+              <option value="30">30s</option>
+              <option value="60">60s</option>
+              <option value="120">120s</option>
+              <option value="240">240s</option>
+              <option value="300">300s</option>
+              <option value="600">600s</option>
+              <option value="1800">1800s</option>
+              <option value="3600">3600s</option>
+            </select>
+          </div>
+        </div>
         <p class="text-xs text-gray-500">
-          ※ 화질은 다음 입장 시, 장치·오디오 설정은 즉시 적용
+          ※ 화질은 다음 입장 시, 나머지는 즉시 적용
         </p>
       </div>
     </div>

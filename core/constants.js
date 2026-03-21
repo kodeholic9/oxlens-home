@@ -101,3 +101,13 @@ export const DEVICE_KIND = Object.freeze({
   AUDIO_OUTPUT: "audiooutput",
   VIDEO_INPUT: "videoinput",
 });
+
+// ============================================================
+//  PTT Power State (4단계 전력 관리)
+// ============================================================
+export const PTT_POWER = Object.freeze({
+  HOT:         "hot",           // 정상 — 장치 ON, 인코더 OK
+  HOT_STANDBY: "hot_standby",   // 빠른 복귀 — 장치 ON, 인코더 disabled
+  WARM:        "warm",          // 중간 복귀 — 장치 OFF (dummy track)
+  COLD:        "cold",          // 최저 전력 — 장치 OFF, RTP 완전 중단
+});
