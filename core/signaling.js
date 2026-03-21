@@ -1,18 +1,18 @@
 // author: kodeholic (powered by Claude)
-// signaling.js — WebSocket 시그널링 + Floor Control FSM
+// signaling.js — WebSocket 시그널링 (순수 WS 계층)
 //
 // 책임:
 //   - WebSocket 연결/해제/송수신
 //   - Heartbeat 타이머
 //   - 패킷 dispatch (이벤트/응답 분기)
-//   - Floor Control 4-state 상태 머신 (MCPTT/MBCP §6.2.4)
-//   - Floor PING 타이머
+//   - Floor opcode → raw 이벤트 emit (FSM은 ptt/floor-fsm.js로 분리)
+//   - Simulcast subscribeLayer
 //
 // client(OxLensClient) 참조를 통해:
-//   - sdk.emit() — 앱으로 이벤트 전파
+//   - sdk.emit() — 앱/모듈로 이벤트 전파
 //   - sdk._onJoinOk() / sdk._onTracksUpdate() — 미디어/텔레메트리 조율
 
-import { OP, CONN, FLOOR, FLOOR_PING_MS } from "./constants.js";
+import { OP, CONN } from "./constants.js";
 
 export class Signaling {
   constructor(sdk) {
@@ -23,28 +23,14 @@ export class Signaling {
     this._hbTimer = null;
     this._connState = CONN.DISCONNECTED;
 
-    // --- Floor Control (MCPTT/MBCP 4-state) ---
-    this._floorState = FLOOR.IDLE;
-    this._speaker = null; // 현재 발화자 user_id (null = nobody)
-    this._pendingCancel = false; // Zello race defense: REQUESTING 중 PTT 뗌
-    this._floorPingTimer = null;
+    // roomMode는 ROOM_JOIN 응답에서 설정 (PTT 여부 판별용으로 signaling에 유지)
     this._roomMode = "conference";
   }
 
   // ── Getters ──
 
-  get connState() {
-    return this._connState;
-  }
-  get floorState() {
-    return this._floorState;
-  }
-  get speaker() {
-    return this._speaker;
-  }
-  get roomMode() {
-    return this._roomMode;
-  }
+  get connState() { return this._connState; }
+  get roomMode() { return this._roomMode; }
 
   // ── WebSocket 연결 ──
 
@@ -71,7 +57,6 @@ export class Signaling {
     this._ws.onmessage = (e) => {
       try {
         const pkt = JSON.parse(e.data);
-        // console.log("→", pkt);
         this._handlePacket(pkt);
       } catch (err) {
         console.error(`[SIG] packet parse error: ${err.message}`);
@@ -81,8 +66,6 @@ export class Signaling {
 
   disconnect() {
     this._clearHeartbeat();
-    this._stopFloorPing();
-    this._resetFloor();
     if (this._ws) {
       this._ws.onopen = null;
       this._ws.onclose = null;
@@ -93,7 +76,6 @@ export class Signaling {
     }
     this._pid = 0;
     this._roomMode = "conference";
-    // ws.onclose=null로 밀었으므로 onclose 콜백 안 옴 → 직접 상태 전이
     this._setConnState(CONN.DISCONNECTED);
   }
 
@@ -102,7 +84,6 @@ export class Signaling {
   send(op, data) {
     if (!this._ws || this._ws.readyState !== WebSocket.OPEN) return;
     const pkt = { op, pid: this._nextPid(), d: data || {} };
-    // console.log("←", pkt);
     this._ws.send(JSON.stringify(pkt));
   }
 
@@ -112,9 +93,7 @@ export class Signaling {
     this._ws.send(JSON.stringify(pkt));
   }
 
-  _nextPid() {
-    return ++this._pid;
-  }
+  _nextPid() { return ++this._pid; }
 
   // ── Heartbeat ──
 
@@ -192,20 +171,20 @@ export class Signaling {
         this.sdk._onTracksResync(d);
         break;
 
-      // --- Floor Control Events ---
+      // --- Floor Control Events → raw emit (FSM은 floor-fsm.js에서 처리) ---
       case OP.FLOOR_TAKEN:
         this.ack(op, pid);
-        this._onFloorTaken(d);
+        this.sdk.emit("_floor:taken_raw", d);
         break;
 
       case OP.FLOOR_IDLE:
         this.ack(op, pid);
-        this._onFloorIdle(d);
+        this.sdk.emit("_floor:idle_raw", d);
         break;
 
       case OP.FLOOR_REVOKE:
         this.ack(op, pid);
-        this._onFloorRevoke(d);
+        this.sdk.emit("_floor:revoke_raw", d);
         break;
 
       default:
@@ -265,9 +244,9 @@ export class Signaling {
         this.sdk.emit("message:ack", d);
         break;
 
-      // --- Floor Control Responses ---
+      // --- Floor Control Responses → raw emit ---
       case OP.FLOOR_REQUEST:
-        this._onFloorGranted(d);
+        this.sdk.emit("_floor:granted_raw", d);
         break;
 
       case OP.FLOOR_RELEASE:
@@ -288,157 +267,18 @@ export class Signaling {
 
   _handleError(op, _pid, d) {
     if (op === OP.FLOOR_REQUEST) {
-      this._onFloorDenied(d);
+      this.sdk.emit("_floor:denied_raw", d);
     } else {
       this.sdk.emit("error", { op, ...d });
     }
   }
 
-  // ════════════════════════════════════════════════════════════
-  //  Floor Control FSM (MCPTT/MBCP §6.2.4 간소화 4-state)
-  //
-  //  상태: IDLE → REQUESTING → TALKING → IDLE
-  //                    ↘ DENIED → IDLE/LISTENING
-  //        IDLE ←→ LISTENING (FLOOR_TAKEN / FLOOR_IDLE)
-  // ════════════════════════════════════════════════════════════
+  // ── Simulcast 레이어 선택 ──
 
-  /**
-   * 발화권 요청 (PTT 누름)
-   * IDLE 또는 LISTENING에서만 요청 가능
-   */
-  floorRequest() {
-    const roomId = this.sdk._roomId;
-    if (!roomId || this._roomMode !== "ptt") return;
-    if (
-      this._floorState === FLOOR.TALKING ||
-      this._floorState === FLOOR.REQUESTING
-    )
-      return;
-
-    this._pendingCancel = false;
-    this._setFloorState(FLOOR.REQUESTING);
-    this.send(OP.FLOOR_REQUEST, { room_id: roomId });
-    this.sdk.emit("floor:pending");
-  }
-
-  /**
-   * Simulcast 레이어 선택 (Phase 3)
-   * @param {Array<{user_id: string, rid: string}>} targets
-   */
   subscribeLayer(targets) {
     if (!targets || targets.length === 0) return;
     this.send(OP.SUBSCRIBE_LAYER, { targets });
     console.log(`[SIG] SUBSCRIBE_LAYER sent: ${targets.map(t => `${t.user_id}=${t.rid}`).join(", ")}`);
-  }
-
-  /**
-   * 발화권 해제 (PTT 뗌)
-   */
-  floorRelease() {
-    const roomId = this.sdk._roomId;
-    if (!roomId || this._roomMode !== "ptt") return;
-
-    if (this._floorState === FLOOR.REQUESTING) {
-      // Zello race defense: 서버 응답 전에 PTT 뗌
-      // → FLOOR_RELEASE 전송 + pendingCancel 플래그
-      this._pendingCancel = true;
-      this.send(OP.FLOOR_RELEASE, { room_id: roomId });
-      this._setFloorState(this._speaker ? FLOOR.LISTENING : FLOOR.IDLE);
-      this.sdk.emit("floor:released");
-      console.log("[SIG] floor:release (pending cancel — Zello race defense)");
-      return;
-    }
-
-    if (this._floorState === FLOOR.TALKING) {
-      this._stopFloorPing();
-      this._speaker = null;
-      this.send(OP.FLOOR_RELEASE, { room_id: roomId });
-      this._setFloorState(FLOOR.IDLE);
-      this.sdk.emit("floor:released");
-    }
-  }
-
-  // ── Floor 응답/이벤트 핸들러 ──
-
-  /** Floor Request → Granted 응답 */
-  _onFloorGranted(d) {
-    if (!d.granted) return;
-
-    // Zello race defense: Granted 도착했지만 이미 사용자가 PTT 뗌
-    if (this._pendingCancel) {
-      console.log(
-        "[SIG] floor:granted arrived but pendingCancel=true → auto-release",
-      );
-      this._pendingCancel = false;
-      const roomId = this.sdk._roomId;
-      if (roomId) this.send(OP.FLOOR_RELEASE, { room_id: roomId });
-      return;
-    }
-
-    this._speaker = d.speaker;
-    this._setFloorState(FLOOR.TALKING);
-    this._startFloorPing();
-    this.sdk.emit("floor:granted", d);
-    console.log(`[SIG] floor:granted speaker=${d.speaker}`);
-  }
-
-  /** Floor Request → Denied 응답 */
-  _onFloorDenied(d) {
-    // denied 시: speaker가 있으면 LISTENING, 없으면 IDLE
-    this._setFloorState(this._speaker ? FLOOR.LISTENING : FLOOR.IDLE);
-    this.sdk.emit("floor:denied", d);
-    console.log(`[SIG] floor:denied code=${d.code} msg=${d.msg}`);
-  }
-
-  /** FLOOR_TAKEN 이벤트 (타인 발화 시작) */
-  _onFloorTaken(d) {
-    this._speaker = d.speaker;
-    // 내가 TALKING 중이면 유지 (내 Granted 직후 자기 Taken 수신)
-    if (
-      this._floorState !== FLOOR.TALKING &&
-      this._floorState !== FLOOR.REQUESTING
-    ) {
-      this._setFloorState(FLOOR.LISTENING);
-    }
-    this.sdk.emit("floor:taken", d);
-    console.log(`[SIG] floor:taken speaker=${d.speaker}`);
-  }
-
-  /** FLOOR_IDLE 이벤트 (발화 종료, 채널 비어있음) */
-  _onFloorIdle(d) {
-    this._stopFloorPing();
-    this._speaker = null;
-    this._setFloorState(FLOOR.IDLE);
-    this.sdk.emit("floor:idle", d);
-    console.log(`[SIG] floor:idle prev_speaker=${d.prev_speaker}`);
-  }
-
-  /** FLOOR_REVOKE 이벤트 (서버 강제 회수) */
-  _onFloorRevoke(d) {
-    this._stopFloorPing();
-    this._speaker = null;
-    this._setFloorState(FLOOR.IDLE);
-    this.sdk.emit("floor:revoke", d);
-    console.log(`[SIG] floor:revoke cause=${d.cause}`);
-  }
-
-  // ── Floor PING 타이머 ──
-
-  _startFloorPing() {
-    this._stopFloorPing();
-    this._floorPingTimer = setInterval(() => {
-      const roomId = this.sdk._roomId;
-      if (this._floorState === FLOOR.TALKING && roomId) {
-        this.send(OP.FLOOR_PING, { room_id: roomId });
-      }
-    }, FLOOR_PING_MS);
-  }
-
-  _stopFloorPing() {
-    if (this._floorPingTimer) {
-      clearInterval(this._floorPingTimer);
-      this._floorPingTimer = null;
-    }
   }
 
   // ── 상태 유틸 ──
@@ -450,23 +290,8 @@ export class Signaling {
     this.sdk.emit("conn:state", { state: next, prev });
   }
 
-  _setFloorState(next) {
-    if (this._floorState === next) return;
-    const prev = this._floorState;
-    this._floorState = next;
-    this.sdk.emit("floor:state", { state: next, prev, speaker: this._speaker });
-  }
-
-  _resetFloor() {
-    this._floorState = FLOOR.IDLE;
-    this._speaker = null;
-    this._pendingCancel = false;
-  }
-
-  /** 퇴장 시 floor 상태 리셋 */
+  /** 퇴장 시 roomMode 리셋 */
   onLeaveRoom() {
-    this._stopFloorPing();
-    this._resetFloor();
     this._roomMode = "conference";
   }
 }

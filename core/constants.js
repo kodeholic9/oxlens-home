@@ -79,19 +79,9 @@ export const FLOOR = Object.freeze({
 });
 
 // ============================================================
-//  Mute 3-state (에스컬레이션 뮤트 상태 머신)
-// ============================================================
-export const MUTE = Object.freeze({
-  UNMUTED: "unmuted",
-  SOFT_MUTED: "soft_muted",
-  HARD_MUTED: "hard_muted",
-});
-
-// ============================================================
 //  Timing 상수
 // ============================================================
 export const FLOOR_PING_MS = 2000;
-export const MUTE_ESCALATION_MS = 5000;
 
 // ============================================================
 //  DeviceManager 이벤트

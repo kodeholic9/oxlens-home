@@ -2,7 +2,7 @@
 // livechat-client/app.js — Light LiveChat 클라이언트 UI
 // SDK 이벤트 구독으로만 동작 — 비즈니스 로직 Zero
 
-import { OxLensClient, CONN, FLOOR, SDK_VERSION, DEVICE_KIND, PTT_POWER } from "../../core/client.js";
+import { OxLensClient, CONN, FLOOR, SDK_VERSION, DEVICE_KIND } from "../../core/client.js";
 
 // ============================================================
 //  DOM
@@ -230,8 +230,7 @@ function resetUI() {
   remoteAudio.srcObject = null;
   _fullscreenUid = null;
   // GainNode 정리
-  if (_inputGainCtx) { _inputGainCtx.close().catch(() => {}); _inputGainCtx = null; }
-  _inputGainNode = null;
+  // GainNode는 SDK 내부 관리 (teardownMedia에서 정리)
   $("conf-grid").innerHTML = "";
   $("room-select").innerHTML = '<option value="">방 선택</option>';
   switchControlMode("conference");
@@ -289,9 +288,8 @@ function bindSdkEvents(s) {
       // Full Cold Start: 시그널링 단절 → 모든 캐시 파기 (타협 없음)
       // PeerConnection, MediaStream, DTLS/SRTP context, telemetry 전부 정리
       if (sdk && isInRoom) {
-        sdk.tel.stop();
-        sdk.media.teardown();
-        log("sys", "시그널링 단절 → Full Cold Start (PC/미디어/텔레메트리 정리 완료)");
+        sdk.teardownMedia();
+        log("sys", "시그널링 단절 → Full Cold Start (미디어/텔레메트리/PTT 정리 완료)");
       }
       resetUI();
     }
@@ -348,7 +346,7 @@ function bindSdkEvents(s) {
     switchControlMode(currentRoomMode);
     if (currentRoomMode === "ptt") {
       updatePttView("idle", null);
-      // PTT 모드: SDK가 _applyPttMediaState()로 초기 상태 자동 적용 (floor=IDLE → 전부 off)
+      // PTT 모드: ptt-controller.attach()가 초기 상태 자동 적용 (floor=IDLE → power-down 시작)
     } else {
       renderConfGrid(d.participants || []);
       // 타일 생성 후 저장된 remote stream 연결 시도
@@ -570,8 +568,12 @@ function bindSdkEvents(s) {
       showToast("ok", "미디어 연결 완료");
       log("ok", "미디어 연결 완료");
       // 마이크 GainNode 연결 + 오디오 constraints 적용
-      _wireInputGain();
-      _applyAudioConstraints();
+      sdk.setInputGain(parseInt($("set-input-gain").value) / 100);
+      sdk.setAudioProcessing({
+        noiseSuppression: $("set-ns").dataset.on === "true",
+        echoCancellation: $("set-aec").dataset.on === "true",
+        autoGainControl: $("set-agc").dataset.on === "true",
+      });
     }
     // ICE failed → 모달
     if (pc === "publish" && state === "failed" && isInRoom) {
@@ -621,7 +623,7 @@ function bindSdkEvents(s) {
 
   // ── Floor Control (PTT) ──
 
-  // floor:state — 4-state FSM 전이 이벤트 (signaling.js에서 emit)
+  // floor:state — 4-state FSM 전이 이벤트 (ptt/floor-fsm.js에서 emit)
   // UI 전환의 단일 진입점
   s.on("floor:state", ({ state, prev, speaker }) => {
     log("sys", `[FLOOR] ${prev} → ${state} speaker=${speaker || "none"}`);
@@ -643,12 +645,12 @@ function bindSdkEvents(s) {
 
   // floor:granted — 내가 발화권 획득 (서버 FLOOR_REQUEST OK 응답)
   // ※ floor:taken은 broadcast_to_others라 요청자 본인에게 안 옴!
-  // ※ 미디어 on/off는 SDK _applyPttMediaState()가 자동 처리. app.js는 UI만.
+  // ※ 미디어 on/off는 ptt/power-fsm.js가 자동 처리. app.js는 UI만.
   s.on("floor:granted", (d) => {
     log("sys", `[FLOOR] GRANTED speaker=${d.speaker}`);
-    // SDK가 _applyPttMediaState()로 audio/video 자동 활성화
+    // ptt/power-fsm.js가 floor:granted → audio/video 자동 활성화
     // UI만 갱신 (media:local 이벤트로 비디오도 갱신됨)
-    localStream = sdk?.media?.stream;
+    // localStream은 media:local 이벤트에서 이미 갱신됨 — SDK 내부 직접 접근 불필요
     const pttVideo = $("ptt-video");
     if (pttVideo && localStream) {
       pttVideo.srcObject = localStream;
@@ -664,13 +666,13 @@ function bindSdkEvents(s) {
 
   // floor:idle — 발화 종료, 채널 비어있음
   s.on("floor:idle", () => {
-    // SDK가 _applyPttMediaState()로 자동 처리
+    // ptt/power-fsm.js가 자동 처리
     log("sys", "[FLOOR] IDLE");
   });
 
   // floor:revoke — 서버 강제 회수
   s.on("floor:revoke", (d) => {
-    // SDK가 _applyPttMediaState()로 자동 처리
+    // ptt/power-fsm.js가 자동 처리
     // pttLocked 해제는 floor:state 핸들러에서 일괄 처리
     showRevokeToast(d.cause);
     log("sys", `[FLOOR] REVOKE cause=${d.cause}`);
@@ -683,8 +685,22 @@ function bindSdkEvents(s) {
 
   // floor:released — 내가 PTT 뗌
   s.on("floor:released", () => {
-    // SDK가 _applyPttMediaState()로 자동 처리
+    // ptt/power-fsm.js가 자동 처리
     log("sys", "[FLOOR] 발화권 해제");
+  });
+
+  // ── PTT Power State 변화 토스트 ──
+  s.on("ptt:power", ({ state, prev }) => {
+    const labels = { hot: "HOT", hot_standby: "HOT-STANDBY", warm: "WARM", cold: "COLD" };
+    const icons = { hot: "ok", hot_standby: "info", warm: "warn", cold: "err" };
+    showToast(icons[state] || "info", `Power: ${labels[prev] || prev} \u2192 ${labels[state] || state}`, 2000);
+  });
+
+  // ── Mute 상태 변화 토스트 (PTT COLD lock 포함) ──
+  s.on("mute:changed", ({ kind, muted }) => {
+    if (currentRoomMode === "ptt" && kind === "all") {
+      showToast(muted ? "warn" : "ok", muted ? "PTT Mute \u2014 COLD 고정" : "PTT Unmute \u2014 HOT 복귀", 2500);
+    }
   });
 
   s.on("message", (d) => log("sys", `메시지 [${d.user_id}]: ${d.content}`));
@@ -1325,41 +1341,13 @@ $("set-output-vol").oninput = () => {
   _saveAudioPref({ outputVol: val });
 };
 
-// 마이크 게인 슬라이더 (Web Audio GainNode)
-let _inputGainNode = null;
-let _inputGainCtx = null;
-
+// 마이크 게인 슬라이더 (SDK 위임)
 $("set-input-gain").oninput = () => {
   const val = parseInt($("set-input-gain").value);
   $("set-input-gain-label").textContent = `${val}%`;
-  if (_inputGainNode) {
-    _inputGainNode.gain.value = val / 100;
-    log("sys", `마이크 게인: ${val}%`);
-  }
+  if (sdk) sdk.setInputGain(val / 100);
   _saveAudioPref({ inputGain: val });
 };
-
-/** 마이크 트랙에 GainNode 체인 삽입 (미디어 획득 후 1회 호출) */
-async function _wireInputGain() {
-  if (!sdk?.media?.audioSender?.track) return;
-  const track = sdk.media.audioSender.track;
-  if (track._gainWired) return;
-
-  try {
-    _inputGainCtx = new AudioContext();
-    const source = _inputGainCtx.createMediaStreamSource(new MediaStream([track]));
-    _inputGainNode = _inputGainCtx.createGain();
-    _inputGainNode.gain.value = parseInt($("set-input-gain").value) / 100;
-    const dest = _inputGainCtx.createMediaStreamDestination();
-    source.connect(_inputGainNode).connect(dest);
-    const gainedTrack = dest.stream.getAudioTracks()[0];
-    await sdk.media.audioSender.replaceTrack(gainedTrack);
-    track._gainWired = true;
-    log("ok", `마이크 GainNode 연결 (gain=${_inputGainNode.gain.value})`);
-  } catch (e) {
-    log("err", `GainNode 연결 실패: ${e.message}`);
-  }
-}
 
 // NS / AEC / AGC 토글 버튼
 function _setToggleBtn(id, on) {
@@ -1376,23 +1364,12 @@ function _initToggleBtn(id, prefKey) {
     const next = $(id).dataset.on !== "true";
     _setToggleBtn(id, next);
     _saveAudioPref({ [prefKey]: next });
-    _applyAudioConstraints();
-  };
-}
-
-async function _applyAudioConstraints() {
-  const track = sdk?.media?.stream?.getAudioTracks()?.[0];
-  if (!track) return;
-  try {
-    await track.applyConstraints({
+    if (sdk) sdk.setAudioProcessing({
       noiseSuppression: $("set-ns").dataset.on === "true",
       echoCancellation: $("set-aec").dataset.on === "true",
       autoGainControl: $("set-agc").dataset.on === "true",
     });
-    log("ok", `오디오: NS=${$("set-ns").dataset.on} AEC=${$("set-aec").dataset.on} AGC=${$("set-agc").dataset.on}`);
-  } catch (e) {
-    log("err", `오디오 설정 적용 실패: ${e.message}`);
-  }
+  };
 }
 
 _initToggleBtn("set-ns", "ns");
@@ -1431,32 +1408,7 @@ $("set-ptt-cold").onchange = () => {
   log("sys", `PTT COLD: ${cfg.coldMs === 0 ? "OFF" : cfg.coldMs + "ms"}`);
 };
 
-// ============================================================
-//  PTT Wake 트리거: visibilitychange / online
-// ============================================================
-
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && sdk && isInRoom && currentRoomMode === "ptt") {
-    sdk._setPttPower(PTT_POWER.HOT);
-    log("sys", "[PTT:WAKE] visibilitychange → visible");
-  }
-});
-
-window.addEventListener("online", () => {
-  if (sdk && isInRoom && currentRoomMode === "ptt") {
-    sdk._setPttPower(PTT_POWER.HOT);
-    log("sys", "[PTT:WAKE] network online");
-  }
-});
-
-if (navigator.connection) {
-  navigator.connection.addEventListener("change", () => {
-    if (sdk && isInRoom && currentRoomMode === "ptt") {
-      sdk._setPttPower(PTT_POWER.HOT);
-      log("sys", `[PTT:WAKE] network change (type=${navigator.connection.effectiveType})`);
-    }
-  });
-}
+// PTT Wake 트리거: power-fsm.js가 자체 등록 (visibilitychange / online / connection change)
 
 // ============================================================
 //  Init
@@ -1497,7 +1449,7 @@ log("sys", `Light LiveChat 클라이언트 준비 완료 (SDK v${SDK_VERSION})`)
 
 /** 타일 레이아웃에 따른 레이어 재분배 (Phase 3 기본형) */
 function redistributeTiles() {
-  if (!sdk || !sdk._simulcastEnabled) return;
+  if (!sdk || !sdk.simulcastEnabled) return;
   const grid = $("conf-grid");
   if (!grid) return;
   const tiles = grid.querySelectorAll(".conf-tile:not(.is-me)");
@@ -1510,7 +1462,7 @@ function redistributeTiles() {
     targets.push({ user_id: uid, rid: "h" }); // 기본: 모든 타일 h
   });
   if (targets.length > 0) {
-    sdk.sig.subscribeLayer(targets);
+    sdk.subscribeLayer(targets);
   }
 }
 
@@ -1572,13 +1524,13 @@ function showTilePopup(tile) {
   }
 
   // Simulcast 레이어 선택 (활성 시만)
-  if (sdk?._simulcastEnabled) {
+  if (sdk?.simulcastEnabled) {
     ["h", "l", "pause"].forEach(rid => {
       const cls = rid === "h" ? "bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/30"
         : rid === "l" ? "bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 border border-yellow-500/30"
         : "bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30";
       _addPopupBtn(popup, rid === "pause" ? "PAUSE" : rid.toUpperCase(), cls, () => {
-        sdk.sig.subscribeLayer([{ user_id: uid, rid }]);
+        sdk.subscribeLayer([{ user_id: uid, rid }]);
         _manualLayerOverride.add(uid);
         log("sys", `[SIM] layer=${rid} for ${uid} (manual)`);
       });
