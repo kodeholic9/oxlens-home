@@ -897,8 +897,9 @@ function updatePttView(state, speaker) {
 
   switch (state) {
     case "idle":
-      // PTT 모드: srcObject를 null로 밀지 않음 (idle↔listening 전환 시 Chrome 스트림 끊김 방지)
+      // PTT 모드: srcObject 유지 (idle↔listening 전환 시 Chrome 스트림 끊김 방지)
       // Conference 모드: srcObject null로 초기화
+      // video element는 상단 공통 코드에서 이미 hidden 처리됨
       if (currentRoomMode !== "ptt") {
         video.srcObject = null;
       }
@@ -950,10 +951,17 @@ function updatePttView(state, speaker) {
           video.srcObject = remoteStream;
         }
         video.muted = false;
-        video.classList.remove("hidden");
-        $("ptt-idle-screen")?.classList.add("hidden");
-        // Chrome이 hidden 상태에서 일시정지한 경우 강제 재생
-        video.play().catch(() => {});
+        // 잔상 방지: video track이 muted(=패킷 미수신)이면 숨김 유지
+        // track.onunmute 핸들러가 새 화자 패킷 도착 시 비디오 표시
+        if (vt && !vt.muted) {
+          video.classList.remove("hidden");
+          $("ptt-idle-screen")?.classList.add("hidden");
+          video.play().catch(() => {});
+        } else {
+          // 새 화자 키프레임 대기 — idle 화면 유지 (이전 화자 잔상 방지)
+          $("ptt-idle-screen")?.classList.remove("hidden");
+          log("sys", `[PTT:VIEW] video hidden until track unmute (speaker=${speaker})`);
+        }
       } else {
         // 스트림 없으면 idle 화면 유지
         $("ptt-idle-screen")?.classList.remove("hidden");

@@ -8,11 +8,13 @@
 //   - async 부수효과: dummy track 교체, null 교체, getUserMedia 복원
 //   - race condition 방어: await 후 상태 재확인
 //   - 사용자 mute lock: COLD 고정 + 모든 wake 트리거 무시
+//   - LISTENING/TALKING/QUEUED 중에는 power-down 타이머 중단 (HOT 유지)
+//   - WARM→HOT 복원 시 이전 카메라 설정(deviceId/facingMode) 보존
 //
 // 단일 진입점: _set(next) — _state 변경은 오직 이 함수만 가능
 // _userMuteLock: 사용자가 mute → COLD 고정, wake 거부. unmute → 해제 → HOT
 
-import { OP, PTT_POWER } from "../constants.js";
+import { OP, FLOOR, PTT_POWER } from "../constants.js";
 
 export class PowerFsm {
   constructor(sdk) {
@@ -25,6 +27,9 @@ export class PowerFsm {
     this._userVideoOff = false;
     this._userMuteLock = false;  // 사용자 mute → COLD 고정, wake 거부
     this._dummyTracks = { audio: null, video: null };
+
+    // 카메라 설정 보존 (WARM 진입 시 저장 → HOT 복귀 시 복원)
+    this._savedVideoConstraints = null;
 
     // detach 시 해제할 이벤트 핸들러/리스너 참조
     this._floorHandlers = {};
@@ -122,6 +127,7 @@ export class PowerFsm {
     this._talking = false;
     this._userVideoOff = false;
     this._userMuteLock = false;
+    this._savedVideoConstraints = null;
   }
 
   // ── Public API ──
@@ -189,10 +195,8 @@ export class PowerFsm {
     // 3. 진입 액션
     this._onEnter(prev, next);
 
-    // 4. 다음 전이 타이머 예약 (비발화 시만)
-    if (!this._talking) {
-      this._scheduleDown();
-    }
+    // 4. 다음 전이 타이머 예약 (floor IDLE일 때만)
+    this._scheduleDown();
 
     // 5. 이벤트 + 로그
     if (prev !== next) {
@@ -225,8 +229,17 @@ export class PowerFsm {
     }
   }
 
-  /** 다음 하강 타이머 예약 */
+  /**
+   * 다음 하강 타이머 예약.
+   * floor가 IDLE일 때만 예약 — LISTENING/TALKING/QUEUED에서는 HOT 유지.
+   */
   _scheduleDown() {
+    // floor 활성 상태면 타이머 예약 안 함 (수신/발화/대기 중 HOT 유지)
+    const floorState = this.sdk.ptt?.floorState;
+    if (floorState === FLOOR.LISTENING || floorState === FLOOR.TALKING || floorState === FLOOR.QUEUED) {
+      return;
+    }
+
     const { HOT, HOT_STANDBY, WARM } = PTT_POWER;
     const cfg = this._config;
     let delayMs = 0;
@@ -264,9 +277,45 @@ export class PowerFsm {
     }
   }
 
+  // ── 카메라 설정 보존 ──
+
+  /** 현재 비디오 트랙의 deviceId/facingMode 저장 */
+  _saveVideoConstraints() {
+    const track = this.sdk.media.stream?.getVideoTracks()?.[0];
+    if (!track) {
+      this._savedVideoConstraints = null;
+      return;
+    }
+    const settings = track.getSettings();
+    this._savedVideoConstraints = {
+      deviceId: settings.deviceId || null,
+      facingMode: settings.facingMode || null,
+    };
+    console.log(`[POWER] video constraints saved: deviceId=${settings.deviceId?.slice(0, 12)} facingMode=${settings.facingMode}`);
+  }
+
+  /** 저장된 constraints → getUserMedia video 옵션 생성 */
+  _buildVideoConstraints() {
+    const mc = this.sdk.mediaConfig;
+    const base = { width: { ideal: mc.width }, height: { ideal: mc.height }, frameRate: { ideal: mc.frameRate } };
+
+    if (!this._savedVideoConstraints) return base;
+
+    const { deviceId, facingMode } = this._savedVideoConstraints;
+    if (deviceId) {
+      base.deviceId = { exact: deviceId };
+    } else if (facingMode) {
+      base.facingMode = { ideal: facingMode };
+    }
+    return base;
+  }
+
   // ── 부수효과 (async — 완료 후 상태 재확인) ──
 
   async _replaceDummy() {
+    // WARM 진입 전 현재 카메라 설정 저장
+    this._saveVideoConstraints();
+
     for (const kind of ["audio", "video"]) {
       if (this._state !== PTT_POWER.WARM) return;
       const sender = kind === "audio" ? this.sdk.media.audioSender : this.sdk.media.videoSender;
@@ -285,6 +334,11 @@ export class PowerFsm {
   }
 
   async _replaceNull() {
+    // COLD 진입 시에도 카메라 설정 보존 (WARM에서 이미 저장했으면 유지)
+    if (!this._savedVideoConstraints) {
+      this._saveVideoConstraints();
+    }
+
     for (const kind of ["audio", "video"]) {
       if (this._state !== PTT_POWER.COLD) return;
       const sender = kind === "audio" ? this.sdk.media.audioSender : this.sdk.media.videoSender;
@@ -295,21 +349,31 @@ export class PowerFsm {
   }
 
   async _restoreTracks() {
-    const mc = this.sdk.mediaConfig;
+    const videoConstraints = this._buildVideoConstraints();
 
     let newStream;
     try {
       newStream = await navigator.mediaDevices.getUserMedia({
         audio: true,
-        video: { width: { ideal: mc.width }, height: { ideal: mc.height }, frameRate: { ideal: mc.frameRate } },
+        video: videoConstraints,
       });
     } catch (e) {
+      // 저장된 deviceId로 실패 → 기본 카메라로 fallback
+      console.warn(`[POWER] getUserMedia with saved constraints failed: ${e.message}, trying default`);
       try {
-        newStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        this.sdk.emit("media:fallback", { dropped: "video", reason: e.message });
+        const mc = this.sdk.mediaConfig;
+        newStream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: { width: { ideal: mc.width }, height: { ideal: mc.height }, frameRate: { ideal: mc.frameRate } },
+        });
       } catch (e2) {
-        this.sdk.emit("error", { code: 0, msg: `PTT wake 미디어 복원 실패: ${e2.message}` });
-        return;
+        try {
+          newStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          this.sdk.emit("media:fallback", { dropped: "video", reason: e2.message });
+        } catch (e3) {
+          this.sdk.emit("error", { code: 0, msg: `PTT wake 미디어 복원 실패: ${e3.message}` });
+          return;
+        }
       }
     }
 
@@ -341,6 +405,7 @@ export class PowerFsm {
       if (kind === "video") videoRestored = true;
     }
 
+    this._savedVideoConstraints = null;  // 복원 완료 → 캐시 클리어
     this.sdk.emit("media:local", this.sdk.media.stream);
     if (videoRestored) this._sendCameraReady();
   }
