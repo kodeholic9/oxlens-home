@@ -114,6 +114,8 @@ export class OxLensClient extends EventEmitter {
   get roomMode() { return this.sig.roomMode; }
   get floorState() { return this.ptt?.floorState ?? FLOOR.IDLE; }
   get speaker() { return this.ptt?.speaker ?? null; }
+  get queuePosition() { return this.ptt?.queuePosition ?? 0; }
+  get queuePriority() { return this.ptt?.queuePriority ?? 0; }
   get facingMode() { return this.media.facingMode; }
   get userVideoOff() { return this.ptt?.userVideoOff ?? false; }
 
@@ -218,8 +220,12 @@ export class OxLensClient extends EventEmitter {
 
   // ── Floor Control (PTT 확장 위임) ──
 
-  floorRequest() { this.ptt?.request(); }
+  floorRequest(priority = 0) { this.ptt?.request(priority); }
   floorRelease() { this.ptt?.release(); }
+  floorQueuePos() {
+    if (!this._roomId) return;
+    this.sig.send(OP.FLOOR_QUEUE_POS, { room_id: this._roomId });
+  }
 
   // ── Simulcast ──
 

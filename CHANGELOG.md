@@ -6,6 +6,38 @@ All notable changes to this project will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.0] - 2026-03-21
+
+### Added (Floor v2 + Telemetry Power Stats)
+
+#### Floor Control v2 클라이언트 연동
+
+- 5-state FSM: QUEUED 상태 추가 (IDLE/REQUESTING/QUEUED/TALKING/LISTENING)
+- `FLOOR_QUEUE_POS` (op=43) opcode + signaling dispatch
+- `floorRequest(priority)` — 우선순위 파라미터 지원 (0~255, 기본 0)
+- `floorQueuePos()` — 큐 위치 조회 API
+- QUEUED UI: requesting 화면 재활용 + position 표시 + QUEUED 배지
+- 긴급발언(ptt-lock) priority=10 전송 → preemption 가능
+- Zello race defense 확장: REQUESTING/QUEUED 중 PTT 럀 → 자동 release
+- preempted revoke 토스트 메시지
+
+#### Telemetry Power State 메트릭
+
+- `powerStats` 버킷: power state별 (hot/hot_standby/warm/cold) 패킷 통계
+  - publish: audio.sent, video.sent, video.kfSent
+  - subscribe: audio.recv, video.recv, video.kfRecv
+- `ptt_power_change` 이벤트 타임라인 기록 (from/to/ts)
+- `keyFramesEncodedDelta` (publish), `keyFramesDecodedDelta` (subscribe) 추가
+- 3초 윈도우 flush → 어드민 PTT 진단 패널에서 확인 가능
+
+### Changed
+
+- `core/ptt/floor-fsm.js` 전면 재작성 (4-state → 5-state)
+- `core/telemetry.js` 전면 재작성 (powerStats 버킷 + kf delta 추가)
+- `demo/client/index.html` ptt-req-label 클래스 추가
+
+---
+
 ## [0.5.6] - 2026-03-14
 
 ### Changed (admin 리팩토링 + ring buffer + 경로 이동)

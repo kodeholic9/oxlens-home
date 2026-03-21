@@ -628,8 +628,8 @@ function bindSdkEvents(s) {
   s.on("floor:state", ({ state, prev, speaker }) => {
     log("sys", `[FLOOR] ${prev} → ${state} speaker=${speaker || "none"}`);
 
-    // 긴급발언 동기화: TALKING/REQUESTING 아닌 상태로 전이 시 자동 해제
-    if (pttLocked && state !== "talking" && state !== "requesting") {
+    // 긴급발언 동기화: TALKING/REQUESTING/QUEUED 아닌 상태로 전이 시 자동 해제
+    if (pttLocked && state !== "talking" && state !== "requesting" && state !== "queued") {
       pttLocked = false;
       resetPttLockBtn();
       log("sys", "[PTT] 긴급발언 자동 해제 (floor 상태 변경)");
@@ -676,6 +676,12 @@ function bindSdkEvents(s) {
     // pttLocked 해제는 floor:state 핸들러에서 일괄 처리
     showRevokeToast(d.cause);
     log("sys", `[FLOOR] REVOKE cause=${d.cause}`);
+  });
+
+  // floor:queued — 큐 대기
+  s.on("floor:queued", (d) => {
+    showToast("info", `큐 대기 #${d.position} (priority=${d.priority})`, 3000);
+    log("sys", `[FLOOR] QUEUED pos=${d.position} pri=${d.priority} qsize=${d.queue_size}`);
   });
 
   // floor:denied — 발화권 거부
@@ -901,7 +907,22 @@ function updatePttView(state, speaker) {
 
     case "requesting":
       reqScreen.classList.remove("hidden");
+      // queued에서 재활용한 label 리셋
+      const reqLabelReset = reqScreen.querySelector(".ptt-req-label");
+      if (reqLabelReset) reqLabelReset.textContent = "REQUESTING";
       break;
+
+    case "queued": {
+      // 큐 대기 UI — requesting 화면 재활용 + position 표시
+      const pos = sdk?.queuePosition || "?";
+      reqScreen.classList.remove("hidden");
+      const reqLabel = reqScreen.querySelector(".ptt-req-label");
+      if (reqLabel) reqLabel.textContent = `대기 중... #${pos}`;
+      talkBadge.textContent = `QUEUED #${pos}`;
+      talkBadge.className = "px-3 py-1 rounded-full text-xs font-mono font-bold bg-yellow-600/90 text-white shadow-lg";
+      talkOverlay.classList.remove("hidden");
+      break;
+    }
 
     case "talking":
       idleScreen.classList.add("hidden");
@@ -980,6 +1001,8 @@ function showRevokeToast(cause) {
   const text = el.querySelector("span");
   if (cause === "max burst exceeded") {
     text.textContent = "시간 초과 — 발화권이 회수되었습니다";
+  } else if (cause === "preempted") {
+    text.textContent = "높은 우선순위에 의해 선점되었습니다";
   } else {
     text.textContent = `발화권 회수: ${cause}`;
   }
@@ -1025,7 +1048,7 @@ $("btn-ptt-lock").onclick = () => {
   if (!pttLocked) {
     // 잠금 ON → Floor Request
     pttLocked = true;
-    sdk.floorRequest();
+    sdk.floorRequest(10);  // 긴급발언: 높은 priority → preemption 가능
     btn.classList.remove("border-red-500/50", "text-red-400");
     btn.classList.add("bg-red-600", "border-red-600", "text-white", "animate-pulse");
     btn.title = "긴급발언 해제";

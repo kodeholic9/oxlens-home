@@ -9,6 +9,7 @@
 //   - 구간 C: subscribe inbound-rtp (3초 주기)
 //   - delta bitrate / jitterBuffer delta 계산
 //   - 이벤트 타임라인: 상태 전이 감지 + 링버퍼 기록
+//   - Power State별 패킷 통계 (PTT 모드)
 
 import { OP } from "./constants.js";
 
@@ -23,6 +24,50 @@ export class Telemetry {
     this._eventLog = [];        // 링버퍼 (최근 EVENT_LOG_MAX개)
     this._watchState = {};      // 이전 감시 상태값 (SSRC별)
     this._pendingEvents = [];   // 현재 tick에서 감지된 이벤트 (전송 후 클리어)
+    // Power State별 패킷 통계 버킷 (PTT 모드)
+    this._powerStats = this._emptyPowerStats();
+    this._powerHandler = null;
+  }
+
+  // ============================================================
+  //  Power State별 패킷 통계
+  // ============================================================
+
+  /** 빈 powerStats 버킷 생성 */
+  _emptyPowerStats() {
+    const bucket = () => ({
+      audio: { sent: 0, recv: 0 },
+      video: { sent: 0, recv: 0, kfSent: 0, kfRecv: 0 },
+    });
+    return { hot: bucket(), hot_standby: bucket(), warm: bucket(), cold: bucket() };
+  }
+
+  /** publish/subscribe delta를 현재 power state 버킷에 누적 */
+  _accumulatePowerStats(pc, stats) {
+    const power = this.sdk.pttPowerState || "hot";
+    const bucket = this._powerStats[power];
+    if (!bucket) return;
+
+    const items = pc === "pub" ? (stats.outbound || []) : (stats.inbound || []);
+    for (const r of items) {
+      const kind = r.kind;
+      if (!bucket[kind]) continue;
+
+      if (pc === "pub") {
+        bucket[kind].sent += r.packetsSentDelta || 0;
+        if (kind === "video") bucket[kind].kfSent += r.keyFramesEncodedDelta || 0;
+      } else {
+        bucket[kind].recv += r.packetsReceivedDelta || 0;
+        if (kind === "video") bucket[kind].kfRecv += r.keyFramesDecodedDelta || 0;
+      }
+    }
+  }
+
+  /** powerStats 스냅샷 반환 + 리셋 */
+  _flushPowerStats() {
+    const snap = this._powerStats;
+    this._powerStats = this._emptyPowerStats();
+    return snap;
   }
 
   // ============================================================
@@ -272,6 +317,14 @@ export class Telemetry {
     this._eventLog = [];
     this._watchState = {};
     this._pendingEvents = [];
+
+    // Power State 전이 이벤트 → 타임라인 기록
+    this._powerHandler = ({ state, prev }) => {
+      this._pushEvent({ type: "ptt_power_change", from: prev, to: state });
+    };
+    this.sdk.on("ptt:power", this._powerHandler);
+    this._powerStats = this._emptyPowerStats();
+
     let tick = 0;
 
     this._statsTimer = setInterval(async () => {
@@ -288,6 +341,7 @@ export class Telemetry {
           const stats = await media.pubPc.getStats();
           this._detectPublishEvents(stats, ts);
           telemetry.publish = this._collectPublishStats(stats);
+          this._accumulatePowerStats("pub", telemetry.publish);
         } catch (_) { /* pc closed */ }
       }
 
@@ -297,13 +351,14 @@ export class Telemetry {
           const stats = await media.subPc.getStats();
           this._detectSubscribeEvents(stats, ts);
           telemetry.subscribe = this._collectSubscribeStats(stats);
+          this._accumulatePowerStats("sub", telemetry.subscribe);
         } catch (_) { /* pc closed */ }
       }
 
       // 구간 S-2: codec
       telemetry.codecs = await this._collectCodecStats();
 
-      // 구간 P: PTT 진단 (트랙/인코더/PC 건강성)
+      // 구간 P: PTT 진단 (트랙/인코더/PC 건강성 + powerStats)
       telemetry.ptt = this._collectPttDiagnostics();
 
       // P1: subscribe 트랙 카운트 — 누락 감지용
@@ -330,6 +385,11 @@ export class Telemetry {
       this._statsTimer = null;
     }
     this._prevStats = null;
+    // Power State 이벤트 해제
+    if (this._powerHandler) {
+      this.sdk.off("ptt:power", this._powerHandler);
+      this._powerHandler = null;
+    }
   }
 
   /** 전체 이벤트 로그 반환 (스냅샷/디버그용) */
@@ -384,6 +444,12 @@ export class Telemetry {
         const deltaNackPub = Math.max(0, (r.nackCount || 0) - prevNackPub);
         if (this._prevStats) this._prevStats.pub.set(`nack_${r.ssrc}`, r.nackCount || 0);
 
+        // --- keyFramesEncoded delta ---
+        const prevKf = this._prevStats?.pub.get(`kf_${r.ssrc}`) || 0;
+        const curKf = r.keyFramesEncoded || 0;
+        const deltaKf = Math.max(0, curKf - prevKf);
+        if (this._prevStats) this._prevStats.pub.set(`kf_${r.ssrc}`, curKf);
+
         result.outbound.push({
           kind: r.kind, ssrc: r.ssrc,
           packetsSent: r.packetsSent,
@@ -399,6 +465,7 @@ export class Telemetry {
           framesSent: r.framesSent || null,
           hugeFramesSent: r.hugeFramesSent || null,
           keyFramesEncoded: r.keyFramesEncoded || null,
+          keyFramesEncodedDelta: deltaKf,
           framesPerSecond: r.framesPerSecond || null,
           totalEncodeTime: r.totalEncodeTime || null,
           qualityLimitationReason: r.qualityLimitationReason || null,
@@ -477,6 +544,12 @@ export class Telemetry {
         const deltaConcealedSamples = Math.max(0, (r.concealedSamples || 0) - prevConcealed);
         if (this._prevStats) this._prevStats.sub.set(`concealed_${r.ssrc}`, r.concealedSamples || 0);
 
+        // --- keyFramesDecoded delta ---
+        const prevKfDec = this._prevStats?.sub.get(`kf_${r.ssrc}`) || 0;
+        const curKfDec = r.keyFramesDecoded || 0;
+        const deltaKfDec = Math.max(0, curKfDec - prevKfDec);
+        if (this._prevStats) this._prevStats.sub.set(`kf_${r.ssrc}`, curKfDec);
+
         result.inbound.push({
           kind: r.kind, ssrc: r.ssrc, sourceUser,
           packetsReceived: r.packetsReceived,
@@ -492,6 +565,7 @@ export class Telemetry {
           jitterBufferEmittedCount: r.jitterBufferEmittedCount || null,
           framesDecoded: r.framesDecoded || null,
           keyFramesDecoded: r.keyFramesDecoded || null,
+          keyFramesDecodedDelta: deltaKfDec,
           framesDropped: r.framesDropped || null,
           framesPerSecond: r.framesPerSecond || null,
           freezeCount: r.freezeCount || 0,
@@ -575,6 +649,9 @@ export class Telemetry {
       pttPowerState: sdk.pttPowerState,
       userVideoOff: sdk.userVideoOff,
       tabVisible:   document.visibilityState === "visible",
+
+      // ── Power State별 패킷 통계 (3초 윈도우 → flush) ──
+      powerStats:   this._flushPowerStats(),
 
       // ── 트랙 건강성 (MediaStreamTrack 직접 조회) ──
       tracks: [],

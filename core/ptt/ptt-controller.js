@@ -45,10 +45,12 @@ export class PttController {
 
   // ── Floor API 위임 ──
 
-  request()     { this.power.wake(); this.floor.request(); }
-  release()     { this.floor.release(); }
-  get floorState() { return this.floor.state; }
-  get speaker()    { return this.floor.speaker; }
+  request(priority = 0) { this.power.wake(); this.floor.request(priority); }
+  release()              { this.floor.release(); }
+  get floorState()       { return this.floor.state; }
+  get speaker()          { return this.floor.speaker; }
+  get queuePosition()    { return this.floor.queuePosition; }
+  get queuePriority()    { return this.floor.queuePriority; }
 
   // ── Power API 위임 ──
 

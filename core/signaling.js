@@ -246,7 +246,11 @@ export class Signaling {
 
       // --- Floor Control Responses → raw emit ---
       case OP.FLOOR_REQUEST:
-        this.sdk.emit("_floor:granted_raw", d);
+        if (d.queued) {
+          this.sdk.emit("_floor:queued_raw", d);
+        } else {
+          this.sdk.emit("_floor:granted_raw", d);
+        }
         break;
 
       case OP.FLOOR_RELEASE:
@@ -260,6 +264,10 @@ export class Signaling {
         console.log("[SIG] subscribe_layer ack");
         break;
 
+      case OP.FLOOR_QUEUE_POS:
+        this.sdk.emit("floor:queue_pos", d);
+        break;
+
       default:
         this.sdk.emit("ack", { op, d });
     }
@@ -268,6 +276,8 @@ export class Signaling {
   _handleError(op, _pid, d) {
     if (op === OP.FLOOR_REQUEST) {
       this.sdk.emit("_floor:denied_raw", d);
+    } else if (op === OP.FLOOR_QUEUE_POS) {
+      this.sdk.emit("error", { op, ...d });
     } else {
       this.sdk.emit("error", { op, ...d });
     }

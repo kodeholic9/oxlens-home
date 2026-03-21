@@ -4,7 +4,7 @@
 // 여러 모듈(signaling, media-session, telemetry, livechat-sdk)이 공유하는 상수.
 // 순환 의존 방지를 위해 독립 파일로 분리.
 
-export const SDK_VERSION = "0.7.0";
+export const SDK_VERSION = "0.6.0";
 
 // ============================================================
 //  Opcodes — light-livechat signaling protocol (2PC/SDP-free)
@@ -31,6 +31,7 @@ export const OP = Object.freeze({
   FLOOR_REQUEST: 40,
   FLOOR_RELEASE: 41,
   FLOOR_PING: 42,
+  FLOOR_QUEUE_POS: 43,       // 큐 위치 조회
 
   // Polling & Simulcast
   ROOM_SYNC: 50,             // 참여자+트랙+floor 전체 동기화
@@ -69,13 +70,14 @@ export const CONN = Object.freeze({
 //    REQUESTING       = "U: pending Request"
 //    TALKING          = "U: has permission"
 //  MBCP "U: pending Release" → WS 기반 즉시 응답으로 생략
-//  MBCP "U: queued"          → 큐 미지원, 의도적 생략
+//  MBCP "U: queued"          → Floor v2 큐 지원 (QUEUED 상태)
 // ============================================================
 export const FLOOR = Object.freeze({
   IDLE: "idle", // 아무도 안 말함, PTT 가능
   REQUESTING: "requesting", // PTT 눌림, 서버 응답 대기
   TALKING: "talking", // 내가 발화 중
   LISTENING: "listening", // 타인 발화 중, PTT 가능(deny 될 수 있음)
+  QUEUED: "queued",       // 큐 대기 중 (서버에 큐잉됨, release로 취소 가능)
 });
 
 // ============================================================
