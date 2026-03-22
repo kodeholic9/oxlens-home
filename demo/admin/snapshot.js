@@ -260,6 +260,12 @@ export function buildSnapshot() {
       L.push(
         `[${uid}:subPc] conn=${p.subPc.connectionState} ice=${p.subPc.iceState} dtls=${p.subPc.dtlsState ?? "?"}`,
       );
+    if (p.restoreMetrics) {
+      const rm = p.restoreMetrics;
+      L.push(
+        `[${uid}:restore] from=${rm.prevState} audio=${rm.audioMethod}(${rm.audioMs}ms) video=${rm.videoMethod}(${rm.videoMs}ms) total=${rm.totalMs}ms`,
+      );
+    }
   });
   L.push("");
 

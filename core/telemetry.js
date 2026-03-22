@@ -27,6 +27,8 @@ export class Telemetry {
     // Power State별 패킷 통계 버킷 (PTT 모드)
     this._powerStats = this._emptyPowerStats();
     this._powerHandler = null;
+    this._restoreMetricsHandler = null;
+    this._lastRestoreMetrics = null;  // 마지막 복구 메트릭 (ptt:restore_metrics)
   }
 
   // ============================================================
@@ -323,6 +325,8 @@ export class Telemetry {
       this._pushEvent({ type: "ptt_power_change", from: prev, to: state });
     };
     this.sdk.on("ptt:power", this._powerHandler);
+    this._restoreMetricsHandler = (metrics) => { this._lastRestoreMetrics = metrics; };
+    this.sdk.on("ptt:restore_metrics", this._restoreMetricsHandler);
     this._powerStats = this._emptyPowerStats();
 
     let tick = 0;
@@ -389,6 +393,10 @@ export class Telemetry {
     if (this._powerHandler) {
       this.sdk.off("ptt:power", this._powerHandler);
       this._powerHandler = null;
+    }
+    if (this._restoreMetricsHandler) {
+      this.sdk.off("ptt:restore_metrics", this._restoreMetricsHandler);
+      this._restoreMetricsHandler = null;
     }
   }
 
@@ -662,6 +670,9 @@ export class Telemetry {
       // ── PC 연결 상태 ──
       pubPc: null,
       subPc: null,
+
+      // ── 마지막 복구 메트릭 (WARM/COLD→HOT) ──
+      restoreMetrics: this._lastRestoreMetrics,
     };
 
     // 트랙 건강성: stream이 있으면 각 track의 enabled/readyState/muted

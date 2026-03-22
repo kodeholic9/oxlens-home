@@ -355,16 +355,25 @@ export class PowerFsm {
   }
 
   async _restoreTracks() {
+    const restoreT0 = performance.now();
+    const prevState = this._state;  // 복귀 전 상태 (WARM/COLD 구분용)
+
     // ── Phase 1: Audio 즉시 복구 ──
     const audioSender = this.sdk.media.audioSender;
+    let audioMethod = "none";
+    let audioMs = 0;
     if (audioSender?.track && !audioSender.track._dummyCtx && !audioSender.track._dummyCanvas) {
       // WARM: 장치 살아있음 → enabled=true만
       audioSender.track.enabled = true;
-      console.log("[POWER] audio restored (enabled=true, instant)");
+      audioMethod = "enable";
+      audioMs = Math.round(performance.now() - restoreT0);
+      console.log(`[POWER] audio restored (enabled=true, ${audioMs}ms)`);
     } else {
       // COLD: 장치 없음 → getUserMedia({ audio }) 먼저
+      const audioT0 = performance.now();
       try {
         const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioMs = Math.round(performance.now() - audioT0);
         if (this._state !== PTT_POWER.HOT) { audioStream.getTracks().forEach(t => t.stop()); return; }
         const newAudioTrack = audioStream.getAudioTracks()[0];
         if (newAudioTrack && audioSender) {
@@ -374,10 +383,13 @@ export class PowerFsm {
             this.sdk.media.stream.getAudioTracks().forEach(t => this.sdk.media.stream.removeTrack(t));
             this.sdk.media.stream.addTrack(newAudioTrack);
           }
-          console.log("[POWER] audio restored (getUserMedia, COLD→HOT)");
+          audioMethod = "getUserMedia";
+          console.log(`[POWER] audio restored (getUserMedia, COLD→HOT, ${audioMs}ms)`);
         }
       } catch (e) {
-        console.error(`[POWER] audio restore failed: ${e.message}`);
+        audioMs = Math.round(performance.now() - audioT0);
+        audioMethod = "failed";
+        console.error(`[POWER] audio restore failed: ${e.message} (${audioMs}ms)`);
         this.sdk.emit("error", { code: 0, msg: `PTT wake 마이크 복원 실패: ${e.message}` });
         return;
       }
@@ -389,11 +401,14 @@ export class PowerFsm {
     if (!videoSender) {
       this._savedVideoConstraints = null;
       this.sdk.emit("media:local", this.sdk.media.stream);
+      this._emitRestoreMetrics(prevState, audioMethod, audioMs, "none", 0, restoreT0);
       return;
     }
 
+    const videoT0 = performance.now();
     const videoConstraints = this._buildVideoConstraints();
     let videoStream;
+    let videoMethod = "getUserMedia";
     try {
       videoStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: videoConstraints });
     } catch (e) {
@@ -404,14 +419,18 @@ export class PowerFsm {
           audio: false,
           video: { width: { ideal: mc.width }, height: { ideal: mc.height }, frameRate: { ideal: mc.frameRate } },
         });
+        videoMethod = "getUserMedia:fallback";
       } catch (e2) {
-        console.warn(`[POWER] video restore failed: ${e2.message} (audio-only)`);
+        const videoMs = Math.round(performance.now() - videoT0);
+        console.warn(`[POWER] video restore failed: ${e2.message} (audio-only, ${videoMs}ms)`);
         this.sdk.emit("media:fallback", { dropped: "video", reason: e2.message });
         this._savedVideoConstraints = null;
         this.sdk.emit("media:local", this.sdk.media.stream);
+        this._emitRestoreMetrics(prevState, audioMethod, audioMs, "failed", videoMs, restoreT0);
         return;
       }
     }
+    const videoMs = Math.round(performance.now() - videoT0);
 
     if (this._state !== PTT_POWER.HOT) { videoStream.getTracks().forEach(t => t.stop()); return; }
 
@@ -424,12 +443,22 @@ export class PowerFsm {
         this.sdk.media.stream.getVideoTracks().forEach(t => this.sdk.media.stream.removeTrack(t));
         this.sdk.media.stream.addTrack(newVideoTrack);
       }
-      console.log("[POWER] video restored (getUserMedia)");
+      console.log(`[POWER] video restored (${videoMethod}, ${videoMs}ms)`);
     }
 
     this._savedVideoConstraints = null;
     this.sdk.emit("media:local", this.sdk.media.stream);
     if (newVideoTrack) this._sendCameraReady();
+
+    this._emitRestoreMetrics(prevState, audioMethod, audioMs, videoMethod, videoMs, restoreT0);
+  }
+
+  /** 복구 메트릭 이벤트 발행 + 콘솔 로그 */
+  _emitRestoreMetrics(prevState, audioMethod, audioMs, videoMethod, videoMs, t0) {
+    const totalMs = Math.round(performance.now() - t0);
+    const metrics = { prevState, audioMethod, audioMs, videoMethod, videoMs, totalMs };
+    console.log(`[POWER:METRICS] restore from=${prevState} audio=${audioMethod}(${audioMs}ms) video=${videoMethod}(${videoMs}ms) total=${totalMs}ms`);
+    this.sdk.emit("ptt:restore_metrics", metrics);
   }
 
   // ── 서버 통신 헬퍼 ──
