@@ -509,6 +509,14 @@ export class MediaSession {
       if (report.encoderImplementation === undefined && report.kind === "video" && report.bytesSent === 0) return;
       const entry = { kind: report.kind, ssrc: report.ssrc };
       if (report.rid) entry.rid = report.rid;
+      // 비디오 코덱 전달 (mediasoup/Janus 선례: 시그널링에서 코덱 명시)
+      // outbound-rtp의 codecId → codec stats의 mimeType ("video/H264" → "H264")
+      if (report.kind === "video" && report.codecId) {
+        const codecReport = stats.get(report.codecId);
+        if (codecReport?.mimeType) {
+          entry.codec = codecReport.mimeType.split("/")[1];
+        }
+      }
       tracks.push(entry);
     });
     return tracks;
