@@ -29,8 +29,7 @@ export class Telemetry {
     this._powerHandler = null;
     this._restoreMetricsHandler = null;
     this._lastRestoreMetrics = null;  // 마지막 복구 메트릭 (ptt:restore_metrics)
-    this._lastStallRecoveryTs = 0;    // decoder_stall 자동 복구 쿨다운 (60초)
-    this._stallRecoveryCount = 0;     // 복구 시도 횟수 (최대 3회)
+
   }
 
   // ============================================================
@@ -287,20 +286,8 @@ export class Telemetry {
             consecutiveTicks: decoderStallCount,
             droppedDelta: deltaDroppedEv,
           }, ts);
-        }
-        // Layer 3: 5연속(15초) → subscribe PC 재생성 트리거 (60초 쿨다운, 최대 3회)
-        if (decoderStallCount >= 5 && (ts - this._lastStallRecoveryTs) > 60000 && this._stallRecoveryCount < 3) {
-          this._lastStallRecoveryTs = ts;
-          this._stallRecoveryCount++;
-          console.warn(`[TEL:RECOVERY] decoder stall critical ssrc=0x${r.ssrc.toString(16)} ticks=${decoderStallCount} attempt=${this._stallRecoveryCount}/3`);
-          this.sdk.emit("decoder:stall_critical", { ssrc: r.ssrc, consecutiveTicks: decoderStallCount, attempt: this._stallRecoveryCount });
-        } else if (decoderStallCount >= 5 && this._stallRecoveryCount >= 3) {
-          // 최대 복구 시도 초과 — 사용자 알림 (1회만)
-          if (this._stallRecoveryCount === 3) {
-            this._stallRecoveryCount = 4; // sentinel: 이미 알림 완료
-            console.error(`[TEL:RECOVERY] decoder stall unrecoverable — giving up after 3 attempts`);
-            this.sdk.emit("decoder:unrecoverable", { ssrc: r.ssrc });
-          }
+          // 관측 사실을 health-monitor에 전달 (복구 판단은 health-monitor 담당)
+          this.sdk.emit("health:decoder_stall", { ssrc: r.ssrc, consecutiveTicks: decoderStallCount });
         }
       }
 
@@ -360,9 +347,6 @@ export class Telemetry {
     this._eventLog = [];
     this._watchState = {};
     this._pendingEvents = [];
-    this._lastStallRecoveryTs = 0;
-    this._stallRecoveryCount = 0;
-
     // Power State 전이 이벤트 → 타임라인 기록
     this._powerHandler = ({ state, prev }) => {
       this._pushEvent({ type: "ptt_power_change", from: prev, to: state });
