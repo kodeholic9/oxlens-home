@@ -617,10 +617,17 @@ export class MediaSession {
 
   /**
    * SSRC → source user_id 매핑
+   * PTT 모드: 가상 SSRC(__virtual__)일 때 현재 floor speaker로 해석
    */
   resolveSourceUser(ssrc) {
     const track = this._subscribeTracks.find((t) => t.ssrc === ssrc);
-    return track?.user_id || null;
+    const uid = track?.user_id || null;
+    // PTT 가상 SSRC → 현재 발화자로 치환 (스냅샷에서 "U071←U900" 형태로 표시)
+    if (uid === "__virtual__" || uid === null) {
+      const speaker = this.sdk.ptt?.speaker;
+      if (speaker) return speaker;
+    }
+    return uid;
   }
 
   // ============================================================

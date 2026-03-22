@@ -64,6 +64,7 @@ export function renderServerMetrics() {
     ["eg_drop", m.egress_drop],
     ["ack_mis", m.tracks_ack_mismatch],
     ["resync", m.tracks_resync_sent],
+    ["pt_norm", m.pt_normalized],
   ].forEach(([label, val]) => {
     const cls = val > 0 ? "text-white" : "text-gray-600";
     html += `<div class="px-2 py-0.5 bg-brand-dark rounded flex justify-between"><span class="text-gray-400">${label}</span><span class="${cls}">${val ?? 0}</span></div>`;
@@ -295,6 +296,46 @@ export function buildContractChecks() {
     pass: busyRatio < 0.85,
     warn: busyRatio >= 0.85 && busyRatio < 0.95,
     detail: `${busyPct}%${busyRatio >= 0.95 ? " SATURATED" : busyRatio >= 0.85 ? " HIGH" : ""}`,
+  });
+
+  // #4: 코덱 일관성 검사 (지원 코덱 외 PT 감지)
+  let codecOk = true,
+    codecDetail = "VP8/H264 only";
+  const seenCodecs = new Set();
+  latestTelemetry.forEach((tel) => {
+    (tel.codecs || []).forEach((c) => {
+      if (c.codec && c.kind === "video") {
+        seenCodecs.add(c.codec.toUpperCase());
+        if (!["VP8", "H264", "VP9", "OPUS"].includes(c.codec.toUpperCase())) {
+          codecOk = false;
+          codecDetail = `unknown: ${c.codec}`;
+        }
+      }
+    });
+  });
+  if (codecOk && seenCodecs.size > 0) codecDetail = [...seenCodecs].join("+");
+  checks.push({
+    name: "codec_consistency",
+    pass: codecOk,
+    detail: codecDetail,
+  });
+
+  // #7: huge frame 경고 (HW 인코더 이상 징후)
+  let hugeOk = true,
+    hugeDetail = "none";
+  latestTelemetry.forEach((tel) => {
+    (tel.publish?.outbound || []).forEach((ob) => {
+      if (ob.kind === "video" && (ob.hugeFramesSentDelta || 0) > 10) {
+        hugeOk = false;
+        hugeDetail = `huge_delta=${ob.hugeFramesSentDelta}`;
+      }
+    });
+  });
+  checks.push({
+    name: "huge_frames",
+    pass: hugeOk,
+    warn: !hugeOk,
+    detail: hugeDetail,
   });
 
   let encGapOk = true,

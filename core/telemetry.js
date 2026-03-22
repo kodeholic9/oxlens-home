@@ -110,6 +110,10 @@ export class Telemetry {
       const ssrcMatch = sec.match(/a=ssrc:(\d+)/);
       const codecMatch = sec.match(/a=rtpmap:(\d+)\s+([\w]+)\/([\d]+)/);
 
+      // #1: 전체 코덱 목록 (H264 멀티코덱 표시용)
+      const allCodecMatches = [...sec.matchAll(/a=rtpmap:(\d+)\s+([\w\-]+)\/([\d]+)/g)];
+      const codecs = allCodecMatches.map(m => `${m[2]}(${m[1]})`);
+
       return {
         mid: midMatch ? midMatch[1] : null,
         kind,
@@ -118,6 +122,7 @@ export class Telemetry {
         pt: codecMatch ? parseInt(codecMatch[1], 10) : null,
         ssrc: ssrcMatch ? parseInt(ssrcMatch[1], 10) : null,
         port,
+        codecs, // 전체 코덱 목록 (예: ["VP8(96)", "H264(102)"])
       };
     });
   }
@@ -265,6 +270,24 @@ export class Telemetry {
         }, ts);
       }
 
+      // 4.5) decoder_stall (#5): decoded가 멈추고 dropped만 증가 → 디코더 스톨
+      const curDecodedEv = r.framesDecoded || 0;
+      const deltaDecodedEv = curDecodedEv - (prev.framesDecoded || 0);
+      const curDroppedEv = r.framesDropped || 0;
+      const deltaDroppedEv = curDroppedEv - (prev.framesDropped || 0);
+      let decoderStallCount = 0;
+      if (r.kind === "video" && deltaDecodedEv === 0 && deltaDroppedEv > 0) {
+        decoderStallCount = (prev.decoderStallCount || 0) + 1;
+        if (decoderStallCount >= 2) { // 2연속(6초) → 이벤트 발화
+          this._pushEvent({
+            type: "decoder_stall",
+            pc: "sub", kind: r.kind, ssrc: r.ssrc,
+            consecutiveTicks: decoderStallCount,
+            droppedDelta: deltaDroppedEv,
+          }, ts);
+        }
+      }
+
       // 5) FPS 0으로 떨어짐 (수신 중단)
       const curFps = r.framesPerSecond || 0;
       if (r.kind === "video" && prev.fps > 0 && curFps === 0) {
@@ -300,6 +323,8 @@ export class Telemetry {
         fps: curFps,
         concealedSamples: curConcealed,
         totalSamplesReceived: r.totalSamplesReceived || 0,
+        framesDecoded: curDecodedEv,
+        decoderStallCount,
       };
     });
   }
@@ -327,6 +352,14 @@ export class Telemetry {
     this.sdk.on("ptt:power", this._powerHandler);
     this._restoreMetricsHandler = (metrics) => { this._lastRestoreMetrics = metrics; };
     this.sdk.on("ptt:restore_metrics", this._restoreMetricsHandler);
+    // #9: visibility change 이벤트 → 타임라인 기록
+    this._visibilityHandler = (ev) => {
+      this._pushEvent({
+        type: "visibility_change",
+        visible: ev.visible,
+      });
+    };
+    this.sdk.on("ptt:visibility_change", this._visibilityHandler);
     this._powerStats = this._emptyPowerStats();
 
     let tick = 0;
@@ -398,6 +431,10 @@ export class Telemetry {
       this.sdk.off("ptt:restore_metrics", this._restoreMetricsHandler);
       this._restoreMetricsHandler = null;
     }
+    if (this._visibilityHandler) {
+      this.sdk.off("ptt:visibility_change", this._visibilityHandler);
+      this._visibilityHandler = null;
+    }
   }
 
   /** 전체 이벤트 로그 반환 (스냅샷/디버그용) */
@@ -458,6 +495,12 @@ export class Telemetry {
         const deltaKf = Math.max(0, curKf - prevKf);
         if (this._prevStats) this._prevStats.pub.set(`kf_${r.ssrc}`, curKf);
 
+        // --- hugeFramesSent delta (#7) ---
+        const prevHuge = this._prevStats?.pub.get(`huge_${r.ssrc}`) || 0;
+        const curHuge = r.hugeFramesSent || 0;
+        const deltaHuge = Math.max(0, curHuge - prevHuge);
+        if (this._prevStats) this._prevStats.pub.set(`huge_${r.ssrc}`, curHuge);
+
         result.outbound.push({
           kind: r.kind, ssrc: r.ssrc,
           packetsSent: r.packetsSent,
@@ -472,6 +515,7 @@ export class Telemetry {
           framesEncoded: r.framesEncoded || null,
           framesSent: r.framesSent || null,
           hugeFramesSent: r.hugeFramesSent || null,
+          hugeFramesSentDelta: deltaHuge,
           keyFramesEncoded: r.keyFramesEncoded || null,
           keyFramesEncodedDelta: deltaKf,
           framesPerSecond: r.framesPerSecond || null,
@@ -558,6 +602,18 @@ export class Telemetry {
         const deltaKfDec = Math.max(0, curKfDec - prevKfDec);
         if (this._prevStats) this._prevStats.sub.set(`kf_${r.ssrc}`, curKfDec);
 
+        // --- framesDecoded delta (#5: decoder_stall 감지용) ---
+        const prevDecoded = this._prevStats?.sub.get(`decoded_${r.ssrc}`) || 0;
+        const curDecoded = r.framesDecoded || 0;
+        const deltaDecoded = Math.max(0, curDecoded - prevDecoded);
+        if (this._prevStats) this._prevStats.sub.set(`decoded_${r.ssrc}`, curDecoded);
+
+        // --- framesDropped delta ---
+        const prevDropped2 = this._prevStats?.sub.get(`dropped_${r.ssrc}`) || 0;
+        const curDropped2 = r.framesDropped || 0;
+        const deltaDroppedSub = Math.max(0, curDropped2 - prevDropped2);
+        if (this._prevStats) this._prevStats.sub.set(`dropped_${r.ssrc}`, curDropped2);
+
         result.inbound.push({
           kind: r.kind, ssrc: r.ssrc, sourceUser,
           packetsReceived: r.packetsReceived,
@@ -572,9 +628,11 @@ export class Telemetry {
           jitterBufferDelay: jbDelayMs,
           jitterBufferEmittedCount: r.jitterBufferEmittedCount || null,
           framesDecoded: r.framesDecoded || null,
+          framesDecodedDelta: deltaDecoded,
           keyFramesDecoded: r.keyFramesDecoded || null,
           keyFramesDecodedDelta: deltaKfDec,
           framesDropped: r.framesDropped || null,
+          framesDroppedDelta: deltaDroppedSub,
           framesPerSecond: r.framesPerSecond || null,
           freezeCount: r.freezeCount || 0,
           totalFreezesDuration: r.totalFreezesDuration || 0,
@@ -608,8 +666,15 @@ export class Telemetry {
         const stats = await media.pubPc.getStats();
         stats.forEach((r) => {
           if (r.type === "outbound-rtp") {
+            // #3: codecId → mimeType → codec 명시 (VP8/H264)
+            let codec = null;
+            if (r.codecId) {
+              const codecStat = stats.get(r.codecId);
+              if (codecStat?.mimeType) codec = codecStat.mimeType.split("/")[1] || null;
+            }
             codecs.push({
               pc: "pub", kind: r.kind,
+              codec,
               encoderImpl: r.encoderImplementation || null,
               powerEfficient: r.powerEfficientEncoder || null,
               qualityLimitReason: r.qualityLimitationReason || null,
@@ -628,8 +693,14 @@ export class Telemetry {
         const stats = await media.subPc.getStats();
         stats.forEach((r) => {
           if (r.type === "inbound-rtp") {
+            let codec = null;
+            if (r.codecId) {
+              const codecStat = stats.get(r.codecId);
+              if (codecStat?.mimeType) codec = codecStat.mimeType.split("/")[1] || null;
+            }
             codecs.push({
               pc: "sub", kind: r.kind, ssrc: r.ssrc,
+              codec,
               decoderImpl: r.decoderImplementation || null,
               fps: r.framesPerSecond || null,
               framesDecoded: r.framesDecoded || null,

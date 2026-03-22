@@ -96,9 +96,14 @@ export class PowerFsm {
     // wake 트리거
     this._wakeHandlers = {
       visibility: () => {
-        if (document.visibilityState === "visible") {
+        const visible = document.visibilityState === "visible";
+        // #9: hidden/visible 모두 텔레메트리 이벤트 발송 (화면 off/on 시점 특정용)
+        this.sdk.emit("ptt:visibility_change", { visible });
+        if (visible) {
           this._set(PTT_POWER.HOT);
           console.log("[POWER:WAKE] visibilitychange → visible");
+        } else {
+          console.log("[POWER] visibilitychange → hidden");
         }
       },
       online: () => {

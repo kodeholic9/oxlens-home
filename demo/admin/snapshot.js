@@ -38,16 +38,18 @@ export function buildSnapshot() {
   L.push("--- SDP STATE ---");
   sdpTelemetry.forEach((sdp, uid) => {
     if (skip(uid)) return;
-    (sdp.pub_mline_summary || []).forEach((m) =>
+    (sdp.pub_mline_summary || []).forEach((m) => {
+      const codecsStr = m.codecs?.length ? ` codecs=[${m.codecs.join(",")}]` : "";
       L.push(
-        `[${uid}:pub] mid=${m.mid} ${m.kind} ${m.direction} ${m.codec || "?"} pt=${m.pt} ssrc=${m.ssrc}`,
-      ),
-    );
-    (sdp.sub_mline_summary || []).forEach((m) =>
+        `[${uid}:pub] mid=${m.mid} ${m.kind} ${m.direction} ${m.codec || "?"} pt=${m.pt} ssrc=${m.ssrc}${codecsStr}`,
+      );
+    });
+    (sdp.sub_mline_summary || []).forEach((m) => {
+      const codecsStr = m.codecs?.length ? ` codecs=[${m.codecs.join(",")}]` : "";
       L.push(
-        `[${uid}:sub] mid=${m.mid} ${m.kind} ${m.direction} ${m.codec || "?"} pt=${m.pt} ssrc=${m.ssrc}`,
-      ),
-    );
+        `[${uid}:sub] mid=${m.mid} ${m.kind} ${m.direction} ${m.codec || "?"} pt=${m.pt} ssrc=${m.ssrc}${codecsStr}`,
+      );
+    });
   });
   L.push("");
 
@@ -57,10 +59,11 @@ export function buildSnapshot() {
     (tel.codecs || []).forEach((c) => {
       const impl = c.encoderImpl || c.decoderImpl || "?",
         hw = c.powerEfficient === true ? "Y" : "N";
+      const codecStr = c.codec ? ` codec=${c.codec}` : "";
       L.push(
         c.pc === "pub"
-          ? `[${uid}:pub:${c.kind}] impl=${impl} hw=${hw} fps=${c.fps ?? "?"} quality_limit=${c.qualityLimitReason || "none"}`
-          : `[${uid}:sub:${c.kind}] impl=${impl} hw=${hw} fps=${c.fps ?? "?"}`,
+          ? `[${uid}:pub:${c.kind}]${codecStr} impl=${impl} hw=${hw} fps=${c.fps ?? "?"} quality_limit=${c.qualityLimitReason || "none"}`
+          : `[${uid}:sub:${c.kind}]${codecStr} impl=${impl} hw=${hw} fps=${c.fps ?? "?"}`,
       );
     });
   });
@@ -123,8 +126,9 @@ export function buildSnapshot() {
         const qldStr = qld
           ? `bw=${qld.bandwidth?.toFixed(1) || 0}s cpu=${qld.cpu?.toFixed(1) || 0}s`
           : "N/A";
+        const hugeDelta = ob.hugeFramesSentDelta ?? 0;
         L.push(
-          `[${uid}:video:enc] encoded=${encEnc} sent=${encSent} gap=${encEnc !== "?" && encSent !== "?" ? encEnc - encSent : "?"} huge=${huge} enc_time=${encTime} qld_delta=[${qldStr}]`,
+          `[${uid}:video:enc] encoded=${encEnc} sent=${encSent} gap=${encEnc !== "?" && encSent !== "?" ? encEnc - encSent : "?"} huge=${huge}(+${hugeDelta}) enc_time=${encTime} qld_delta=[${qldStr}]`,
         );
       }
     });
@@ -149,8 +153,10 @@ export function buildSnapshot() {
         ib.packetsLostDelta != null ? ` lost_delta=${ib.packetsLostDelta}` : "";
       const nackDeltaStr =
         ib.nackCountDelta != null ? ` nack_delta=${ib.nackCountDelta}` : "";
+      const decodedDeltaStr = ib.framesDecodedDelta != null ? ` decoded_delta=${ib.framesDecodedDelta}` : "";
+      const droppedDeltaStr = ib.framesDroppedDelta != null ? ` dropped_delta=${ib.framesDroppedDelta}` : "";
       L.push(
-        `[${uid}${src}:${ib.kind}] pkts=${ib.packetsReceived}${recvDeltaStr} lost=${ib.packetsLost}${lostDeltaStr}${lossRateStr} bitrate=${bps}kbps jitter=${jMs}ms jb_delay=${jbMs}ms nack_sent=${ib.nackCount}${nackDeltaStr} freeze=${ib.freezeCount} dropped=${ib.framesDropped ?? 0}${ib.framesPerSecond != null ? ` fps=${ib.framesPerSecond}` : ""}`,
+        `[${uid}${src}:${ib.kind}] pkts=${ib.packetsReceived}${recvDeltaStr} lost=${ib.packetsLost}${lostDeltaStr}${lossRateStr} bitrate=${bps}kbps jitter=${jMs}ms jb_delay=${jbMs}ms nack_sent=${ib.nackCount}${nackDeltaStr} freeze=${ib.freezeCount} dropped=${ib.framesDropped ?? 0}${droppedDeltaStr}${decodedDeltaStr}${ib.framesPerSecond != null ? ` fps=${ib.framesPerSecond}` : ""}`,
       );
     });
   });
@@ -280,7 +286,7 @@ export function buildSnapshot() {
     L.push(`[server] egress_encrypt: ${f(m.egress_encrypt)}`);
     L.push(`[server] lock_wait: ${f(m.lock_wait)}`);
     L.push(
-      `[server] nack_recv=${m.nack_received} nack_seqs=${m.nack_seqs_requested} rtx_sent=${m.rtx_sent} rtx_miss=${m.rtx_cache_miss} pli_sent=${m.pli_sent} sr_relay=${m.sr_relayed} rr_relay=${m.rr_relayed} twcc_fb=${m.twcc_sent} twcc_rec=${m.twcc_recorded} remb=${m.remb_sent}`,
+      `[server] nack_recv=${m.nack_received} nack_seqs=${m.nack_seqs_requested} rtx_sent=${m.rtx_sent} rtx_miss=${m.rtx_cache_miss} pli_sent=${m.pli_sent} sr_relay=${m.sr_relayed} rr_relay=${m.rr_relayed} twcc_fb=${m.twcc_sent} twcc_rec=${m.twcc_recorded} remb=${m.remb_sent} pt_norm=${m.pt_normalized ?? 0}`,
     );
     L.push(
       `[server:rtx_diag] cache_stored=${m.rtp_cache_stored ?? 0} pub_not_found=${m.nack_pub_not_found ?? 0} no_rtx=${m.nack_no_rtx ?? 0} lock_fail=${m.cache_lock_fail ?? 0} egress_drop=${m.egress_drop ?? 0}`,
