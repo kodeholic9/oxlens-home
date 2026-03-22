@@ -104,6 +104,7 @@ export class OxLensClient extends EventEmitter {
     // --- Input Gain (GainNode 체인) ---
     this._inputGainCtx = null;
     this._inputGainNode = null;
+    this._inputGainSourceTrack = null;  // GainNode에 물린 원본 audio track
     this._pendingInputGain = 1.0;
 
     // --- Auto-Reconnect (2PC ICE 비대칭 사망 대응) ---
@@ -139,12 +140,12 @@ export class OxLensClient extends EventEmitter {
 
   disconnect() {
     this._joinComplete = false;
+    this.ptt?.detach();
+    this.ptt = null;
     this.tel.stop();
     this.device.stop();
     this.media.teardown();
     this._resetMute();
-    this.ptt?.detach();
-    this.ptt = null;
     this.sig.disconnect();
     this._roomId = null;
   }
@@ -193,14 +194,17 @@ export class OxLensClient extends EventEmitter {
   leaveRoom() {
     if (!this._roomId) return;
     this._joinComplete = false;
+
+    // PTT 먼저 정리 — 진행 중 _ensureHot() bail-out (state=null → track leak 방지)
+    this.ptt?.detach();
+    this.ptt = null;
+
     this.sig.onLeaveRoom();
     this.sig.send(OP.ROOM_LEAVE, { room_id: this._roomId });
     this.tel.stop();
     this.device.stop();
     this.media.teardown();
     this._resetMute();
-    this.ptt?.detach();
-    this.ptt = null;
     const leftRoom = this._roomId;
     this._roomId = null;
     this.emit("room:left", { room_id: leftRoom });
@@ -244,11 +248,11 @@ export class OxLensClient extends EventEmitter {
 
   /** WS 단절 시 미디어/텔레메트리/PTT 정리 (시그널링은 건드리지 않음) */
   teardownMedia() {
+    this.ptt?.detach();
+    this.ptt = null;
     this.tel.stop();
     this.media.teardown();
     this._resetMute();
-    this.ptt?.detach();
-    this.ptt = null;
   }
 
   // ── 오디오 처리 (GainNode + Constraints) ──
@@ -274,6 +278,7 @@ export class OxLensClient extends EventEmitter {
 
     try {
       this._inputGainCtx = new AudioContext();
+      this._inputGainSourceTrack = sender.track;  // 원본 track 참조 보존 (leak 방지)
       const source = this._inputGainCtx.createMediaStreamSource(new MediaStream([sender.track]));
       this._inputGainNode = this._inputGainCtx.createGain();
       this._inputGainNode.gain.value = this._pendingInputGain;
@@ -452,7 +457,11 @@ export class OxLensClient extends EventEmitter {
     this._muted = { audio: false, video: false };
     this._destroyVideoDummy();
     this._simulcastEnabled = false;
-    // GainNode 정리
+    // GainNode 정리 — source track 명시적 stop (마이크 점유 해제)
+    if (this._inputGainSourceTrack) {
+      this._inputGainSourceTrack.stop();
+      this._inputGainSourceTrack = null;
+    }
     if (this._inputGainCtx) {
       this._inputGainCtx.close().catch(() => {});
       this._inputGainCtx = null;

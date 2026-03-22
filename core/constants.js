@@ -4,7 +4,7 @@
 // 여러 모듈(signaling, media-session, telemetry, livechat-sdk)이 공유하는 상수.
 // 순환 의존 방지를 위해 독립 파일로 분리.
 
-export const SDK_VERSION = "0.6.2";
+export const SDK_VERSION = "0.6.3";
 
 // ============================================================
 //  Opcodes — light-livechat signaling protocol (2PC/SDP-free)
@@ -95,7 +95,7 @@ export const DEVICE_KIND = Object.freeze({
 });
 
 // ============================================================
-//  PTT Power State (4단계 전력 관리)
+//  PTT Power State (3단계 전력 관리)
 // ============================================================
 export const PTT_POWER = Object.freeze({
   HOT:         "hot",           // 정상 — 장치 ON, 인코더 OK

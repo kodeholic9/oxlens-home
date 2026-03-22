@@ -45,7 +45,7 @@ export class PttController {
 
   // ── Floor API 위임 ──
 
-  request(priority = 0) { this.power.wake(); this.floor.request(priority); }
+  async request(priority = 0) { await this.power.ensureHot(); this.floor.request(priority); }
   release()              { this.floor.release(); }
   get floorState()       { return this.floor.state; }
   get speaker()          { return this.floor.speaker; }
