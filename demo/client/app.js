@@ -676,14 +676,12 @@ function bindSdkEvents(s) {
   // floor:taken — 타인이 발화 시작 (서버 브로드캐스트, 나에게만 안 옴)
   s.on("floor:taken", (d) => {
     log("sys", `[FLOOR] TAKEN speaker=${d.speaker}`);
-    _startJbDiag();  // [DIAG] subscriber video jb_delay 추이 모니터 (TODO: 안정화 후 제거)
   });
 
   // floor:idle — 발화 종료, 채널 비어있음
   s.on("floor:idle", () => {
     // ptt/power-fsm.js가 자동 처리
     log("sys", "[FLOOR] IDLE");
-    _stopJbDiag();
   });
 
   // floor:revoke — 서버 강제 회수
@@ -1613,66 +1611,6 @@ $("conf-grid").addEventListener("contextmenu", (e) => {
   if (sdk) e.preventDefault();
 });
 
-// ============================================================
-//  [DIAG] Subscriber video jitterBuffer 진단 (TODO: 안정화 후 제거)
-//  floor:taken → 200ms 간격으로 video inbound-rtp jb_delay 추이 로깅
-//  WARM→HOT 복귀 시 jitter buffer 과대 버퍼링 여부 확인용
-// ============================================================
-let _jbDiagTimer = null;
-let _jbDiagPrev = null;
-let _jbDiagStart = 0;
-
-let _jbDiagPowerState = "?";
-
-function _startJbDiag() {
-  _stopJbDiag();
-  if (!sdk?.media?.subPc) return;
-  _jbDiagPrev = null;
-  _jbDiagStart = Date.now();
-  _jbDiagPowerState = sdk?.pttPowerState || "?";
-  console.log(`[DIAG:JB] ── start monitoring (floor:taken, power=${_jbDiagPowerState}) ──`);
-  _jbDiagTimer = setInterval(() => _pollJbDelay(), 200);
-  // 10초 후 자동 중단
-  setTimeout(() => _stopJbDiag(), 10_000);
-}
-
-function _stopJbDiag() {
-  if (_jbDiagTimer) {
-    clearInterval(_jbDiagTimer);
-    _jbDiagTimer = null;
-    console.log("[DIAG:JB] ── stop monitoring ──");
-  }
-}
-
-async function _pollJbDelay() {
-  const pc = sdk?.media?.subPc;
-  if (!pc) return;
-  try {
-    const stats = await pc.getStats();
-    const elapsed = Date.now() - _jbDiagStart;
-    stats.forEach((r) => {
-      if (r.type !== "inbound-rtp" || r.kind !== "video") return;
-      const curDelay = r.jitterBufferDelay || 0;
-      const curEmitted = r.jitterBufferEmittedCount || 0;
-      const decoded = r.framesDecoded || 0;
-      const dropped = r.framesDropped || 0;
-      const fps = r.framesPerSecond || 0;
-      const freeze = r.freezeCount || 0;
-
-      let jbMs = "--";
-      if (_jbDiagPrev && curEmitted > _jbDiagPrev.emitted) {
-        const dDelay = curDelay - _jbDiagPrev.delay;
-        const dEmitted = curEmitted - _jbDiagPrev.emitted;
-        jbMs = Math.round((dDelay / dEmitted) * 1000);
-      }
-      _jbDiagPrev = { delay: curDelay, emitted: curEmitted };
-
-      console.log(`[DIAG:JB] +${elapsed}ms jb=${jbMs}ms fps=${fps} decoded=${decoded} dropped=${dropped} freeze=${freeze} emitted=${curEmitted}`);
-    });
-  } catch (e) {
-    console.warn("[DIAG:JB] poll error:", e.message);
-  }
-}
 
 // ============================================================
 //  PWA Service Worker 등록
