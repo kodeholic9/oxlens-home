@@ -144,6 +144,8 @@ export class OxLensClient extends EventEmitter {
     this.ptt?.detach();
     this.ptt = null;
     this.tel.stop();
+    if (this._stallHandler) { this.off("decoder:stall_critical", this._stallHandler); this._stallHandler = null; }
+    if (this._unrecoverableHandler) { this.off("decoder:unrecoverable", this._unrecoverableHandler); this._unrecoverableHandler = null; }
     this.device.stop();
     this.media.teardown();
     this._resetMute();
@@ -203,6 +205,8 @@ export class OxLensClient extends EventEmitter {
     this.sig.onLeaveRoom();
     this.sig.send(OP.ROOM_LEAVE, { room_id: this._roomId });
     this.tel.stop();
+    if (this._stallHandler) { this.off("decoder:stall_critical", this._stallHandler); this._stallHandler = null; }
+    if (this._unrecoverableHandler) { this.off("decoder:unrecoverable", this._unrecoverableHandler); this._unrecoverableHandler = null; }
     this.device.stop();
     this.media.teardown();
     this._resetMute();
@@ -545,6 +549,20 @@ export class OxLensClient extends EventEmitter {
 
     this.emit("room:joined", { ...d, participants });
     this.tel.start();
+
+    // Layer 3: decoder stall critical → subscribe PC 재생성 (ROOM_SYNC 요청)
+    // TODO: 향후 health-monitor 모듈로 분리 (telemetry=관측, recovery=제어 경계)
+    this._stallHandler = ({ ssrc, consecutiveTicks, attempt }) => {
+      if (!this._roomId) return;
+      console.warn(`[RECOVERY] decoder stall → ROOM_SYNC (attempt ${attempt}/3) ssrc=0x${ssrc.toString(16)} ticks=${consecutiveTicks}`);
+      this.sig.send(OP.ROOM_SYNC, { room_id: this._roomId });
+    };
+    this._unrecoverableHandler = ({ ssrc }) => {
+      console.error(`[RECOVERY] decoder unrecoverable ssrc=0x${ssrc.toString(16)} — 복구 포기`);
+      this.emit("error", { code: 4020, msg: "영상 디코더 복구 불가 — 방 재입장을 권장합니다" });
+    };
+    this.on("decoder:stall_critical", this._stallHandler);
+    this.on("decoder:unrecoverable", this._unrecoverableHandler);
 
     this.media.sendTracksAck();
 

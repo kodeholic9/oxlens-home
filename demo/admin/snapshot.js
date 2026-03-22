@@ -286,7 +286,7 @@ export function buildSnapshot() {
     L.push(`[server] egress_encrypt: ${f(m.egress_encrypt)}`);
     L.push(`[server] lock_wait: ${f(m.lock_wait)}`);
     L.push(
-      `[server] nack_recv=${m.nack_received} nack_seqs=${m.nack_seqs_requested} rtx_sent=${m.rtx_sent} rtx_miss=${m.rtx_cache_miss} pli_sent=${m.pli_sent} sr_relay=${m.sr_relayed} rr_relay=${m.rr_relayed} twcc_fb=${m.twcc_sent} twcc_rec=${m.twcc_recorded} remb=${m.remb_sent} pt_norm=${m.pt_normalized ?? 0}`,
+      `[server] nack_recv=${m.nack_received} nack_seqs=${m.nack_seqs_requested} rtx_sent=${m.rtx_sent} rtx_miss=${m.rtx_cache_miss} pli_sent=${m.pli_sent} sr_relay=${m.sr_relayed} rr_relay=${m.rr_relayed} twcc_fb=${m.twcc_sent} twcc_rec=${m.twcc_recorded} remb=${m.remb_sent} pt_norm=${m.pt_normalized ?? 0} nack_sup=${m.nack_suppressed ?? 0} pli_thrt=${m.pli_throttled ?? 0} rtp_gap=${m.rtp_gap_detected ?? 0}`,
     );
     L.push(
       `[server:rtx_diag] cache_stored=${m.rtp_cache_stored ?? 0} pub_not_found=${m.nack_pub_not_found ?? 0} no_rtx=${m.nack_no_rtx ?? 0} lock_fail=${m.cache_lock_fail ?? 0} egress_drop=${m.egress_drop ?? 0}`,

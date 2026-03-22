@@ -264,6 +264,16 @@ export class Signaling {
         console.log("[SIG] subscribe_layer ack");
         break;
 
+      // ROOM_SYNC 응답 → subscribe PC 재생성 (decoder stall 자동 복구 경로)
+      case OP.ROOM_SYNC: {
+        const syncTracks = d.subscribe_tracks || [];
+        console.log(`[SIG] ROOM_SYNC response: ${syncTracks.length} tracks`);
+        if (syncTracks.length > 0) {
+          this.sdk._onTracksResync({ tracks: syncTracks });
+        }
+        break;
+      }
+
       case OP.FLOOR_QUEUE_POS:
         this.sdk.emit("floor:queue_pos", d);
         break;
