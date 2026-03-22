@@ -711,8 +711,8 @@ function bindSdkEvents(s) {
 
   // ── PTT Power State 변화 토스트 ──
   s.on("ptt:power", ({ state, prev }) => {
-    const labels = { hot: "HOT", hot_standby: "HOT-STANDBY", warm: "WARM", cold: "COLD" };
-    const icons = { hot: "ok", hot_standby: "info", warm: "warn", cold: "err" };
+    const labels = { hot: "HOT", hot_standby: "HOT-STANDBY", cold: "COLD" };
+    const icons = { hot: "ok", hot_standby: "info", cold: "err" };
     showToast(icons[state] || "info", `Power: ${labels[prev] || prev} \u2192 ${labels[state] || state}`, 2000);
   });
 
@@ -1423,14 +1423,13 @@ _initToggleBtn("set-agc", "agc");
 _restoreAudioPref();
 
 // ============================================================
-//  PTT Power State 설정 (HOT-STANDBY / WARM / COLD 진입 타이머)
+//  PTT Power State 설정 (HOT-STANDBY / COLD 진입 타이머)
 // ============================================================
 
 /** 셈렉트 값을 읽어 SDK config 객체로 변환 (localStorage 사용 안 함 — 테스트용 설정) */
 function _readPttPowerSelects() {
   return {
     hotStandbyMs: (parseInt($("set-ptt-hot-standby").value) || 1) * 1000,
-    warmMs: (parseInt($("set-ptt-warm").value) || 10) * 1000,
     coldMs: (parseInt($("set-ptt-cold").value) || 10) * 1000,
   };
 }
@@ -1439,12 +1438,6 @@ $("set-ptt-hot-standby").onchange = () => {
   const cfg = _readPttPowerSelects();
   if (sdk) sdk.pttPowerConfig = cfg;
   log("sys", `PTT HOT-STANDBY: ${cfg.hotStandbyMs}ms`);
-};
-
-$("set-ptt-warm").onchange = () => {
-  const cfg = _readPttPowerSelects();
-  if (sdk) sdk.pttPowerConfig = cfg;
-  log("sys", `PTT WARM: ${cfg.warmMs}ms`);
 };
 
 $("set-ptt-cold").onchange = () => {

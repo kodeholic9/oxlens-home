@@ -41,7 +41,7 @@ export class Telemetry {
       audio: { sent: 0, recv: 0 },
       video: { sent: 0, recv: 0, kfSent: 0, kfRecv: 0 },
     });
-    return { hot: bucket(), hot_standby: bucket(), warm: bucket(), cold: bucket() };
+    return { hot: bucket(), hot_standby: bucket(), cold: bucket() };
   }
 
   /** publish/subscribe delta를 현재 power state 버킷에 누적 */
@@ -671,7 +671,7 @@ export class Telemetry {
       pubPc: null,
       subPc: null,
 
-      // ── 마지막 복구 메트릭 (WARM/COLD→HOT) ──
+      // ── 마지막 복구 메트릭 (COLD→HOT) ──
       restoreMetrics: this._lastRestoreMetrics,
     };
 
