@@ -277,6 +277,20 @@ export class MediaSession {
         }
         const videoTx = this._pubPc.addTransceiver(videoTrack, txOpts);
         this._videoSender = videoTx.sender;
+
+        // setCodecPreferences: 선호 코덱을 offer SDP 앞에 배치 → 브라우저가 해당 코덱으로 인코딩
+        // Safari: H264 HW 가속, Chrome: VP8/H264 모두 SW
+        try {
+          const preferred = this.sdk.mediaConfig.preferredCodec || "H264";
+          const allCodecs = RTCRtpReceiver.getCapabilities("video")?.codecs;
+          if (allCodecs && videoTx.setCodecPreferences) {
+            const sorted = this._sortCodecsByPreference(allCodecs, `video/${preferred}`);
+            videoTx.setCodecPreferences(sorted);
+            console.log(`[MEDIA] setCodecPreferences: preferred=${preferred}`);
+          }
+        } catch (e) {
+          console.warn(`[MEDIA] setCodecPreferences failed: ${e.message}`);
+        }
       }
     }
 
@@ -509,12 +523,27 @@ export class MediaSession {
       if (report.encoderImplementation === undefined && report.kind === "video" && report.bytesSent === 0) return;
       const entry = { kind: report.kind, ssrc: report.ssrc };
       if (report.rid) entry.rid = report.rid;
-      // 비디오 코덱 전달 (mediasoup/Janus 선례: 시그널링에서 코덱 명시)
-      // outbound-rtp의 codecId → codec stats의 mimeType ("video/H264" → "H264")
-      if (report.kind === "video" && report.codecId) {
-        const codecReport = stats.get(report.codecId);
-        if (codecReport?.mimeType) {
-          entry.codec = codecReport.mimeType.split("/")[1];
+      // 비디오 코덱 + PT 전달 (서버 PT 정규화용)
+      if (report.kind === "video") {
+        // 1) codecId → mimeType + payloadType (Chrome)
+        if (report.codecId) {
+          const codecReport = stats.get(report.codecId);
+          if (codecReport?.mimeType) {
+            entry.codec = codecReport.mimeType.split("/")[1];
+          }
+          if (codecReport?.payloadType != null) {
+            entry.pt = codecReport.payloadType;
+          }
+        }
+        // 2) fallback: answer SDP에서 video PT 파싱 (Safari getStats quirk 대응)
+        if (entry.pt == null) {
+          const answerPt = this._parseAnswerVideoPt();
+          if (answerPt != null) entry.pt = answerPt;
+        }
+        // 3) RTX PT: answer SDP에서 apt=N 매핑
+        if (entry.pt != null) {
+          const rtxPt = this._parseAnswerRtxPt(entry.pt);
+          if (rtxPt != null) entry.rtx_pt = rtxPt;
         }
       }
       tracks.push(entry);
@@ -527,6 +556,31 @@ export class MediaSession {
    * a=extmap:5 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01
    * @returns {number|null}
    */
+  /**
+   * Publish answer SDP에서 첫 번째 video 코덱 PT 추출.
+   * answer는 우리가 buildPublishRemoteAnswer로 조립했으므로, 첫 PT가 협상된 코덱.
+   */
+  _parseAnswerVideoPt() {
+    const sdp = this._pubPc?.remoteDescription?.sdp;
+    if (!sdp) return null;
+    const videoSection = sdp.split(/(?=m=video)/m).find(s => s.startsWith("m=video"));
+    if (!videoSection) return null;
+    const mMatch = videoSection.match(/^m=video\s+\d+\s+\S+\s+(\d+)/);
+    return mMatch ? parseInt(mMatch[1], 10) : null;
+  }
+
+  /**
+   * Publish answer SDP에서 media PT에 대응하는 RTX PT 추출.
+   * a=fmtp:120 apt=119 → mediaPt=119이면 return 120
+   */
+  _parseAnswerRtxPt(mediaPt) {
+    const sdp = this._pubPc?.remoteDescription?.sdp;
+    if (!sdp) return null;
+    const regex = new RegExp(`a=fmtp:(\\d+)\\s+apt=${mediaPt}(?:\\b|;)`);
+    const m = sdp.match(regex);
+    return m ? parseInt(m[1], 10) : null;
+  }
+
   _parseTwccExtmapId(sdp) {
     const match = sdp.match(
       /a=extmap:(\d+)\s+http:\/\/www\.ietf\.org\/id\/draft-holmer-rmcat-transport-wide-cc-extensions-01/
@@ -572,6 +626,28 @@ export class MediaSession {
   // ============================================================
   //  Teardown
   // ============================================================
+
+  // ============================================================
+  //  Codec preference helper
+  // ============================================================
+
+  /**
+   * 코덱 배열을 선호 MIME type 순으로 정렬.
+   * 선호 코덱의 media + rtx를 앞으로, 나머지를 뒤로.
+   * 배열을 절대 잘라내지 않음 (fallback 코덱 유지 — Mozilla 권장).
+   */
+  _sortCodecsByPreference(codecs, preferredMime) {
+    const preferred = [];
+    const rest = [];
+    for (const c of codecs) {
+      if (c.mimeType?.toLowerCase() === preferredMime.toLowerCase()) {
+        preferred.push(c);
+      } else {
+        rest.push(c);
+      }
+    }
+    return [...preferred, ...rest];
+  }
 
   teardown() {
     if (this._stream) {

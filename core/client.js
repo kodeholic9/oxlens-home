@@ -80,6 +80,7 @@ export class OxLensClient extends EventEmitter {
       height: opts.height || 720,
       frameRate: opts.frameRate || 24,
       maxBitrate: opts.maxBitrate || 1_500_000,
+      preferredCodec: opts.preferredCodec || "H264",
     };
 
     // --- 모듈 조립 ---

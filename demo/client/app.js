@@ -1281,7 +1281,8 @@ const MEDIA_PRESETS = {
 
 function getMediaSettings() {
   const key = $("set-preset").value;
-  return { ...MEDIA_PRESETS[key] || MEDIA_PRESETS.hd };
+  const preferredCodec = $("set-video-codec")?.value || "H264";
+  return { ...MEDIA_PRESETS[key] || MEDIA_PRESETS.hd, preferredCodec };
 }
 
 // ============================================================

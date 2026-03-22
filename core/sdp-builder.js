@@ -145,8 +145,24 @@ export function buildPublishRemoteAnswer(serverConfig, chromeOfferSdp, simulcast
     const filteredExtmaps = offerExtmaps.filter((e) => serverUriSet.has(e.uri));
 
     // server_config에서 이 kind의 코덱
-    const trackCodecs = codecs.filter((c) => c.kind === kind);
-    if (trackCodecs.length === 0) continue;
+    const serverTrackCodecs = codecs.filter((c) => c.kind === kind);
+    if (serverTrackCodecs.length === 0) continue;
+
+    // offer에서 코덱별 실제 PT 파싱 → answer에 offer의 PT를 사용 (RFC 3264)
+    // Chrome offer: a=rtpmap:119 H264/90000 + a=fmtp:119 ...profile-level-id=42e01f
+    // 서버 answer에 PT=119로 H264을 넣어야 Chrome이 인식
+    const trackCodecs = _mapCodecsToOfferPts(serverTrackCodecs, section);
+
+    // offer m-line의 PT 순서로 answer 코덱 정렬 (setCodecPreferences 반영)
+    const offerPtMatch = section.match(/^m=\w+\s+\d+\s+\S+\s+(.+)/m);
+    if (offerPtMatch) {
+      const offerPts = offerPtMatch[1].split(/\s+/).map(Number);
+      trackCodecs.sort((a, b) => {
+        const idxA = offerPts.indexOf(a.pt);
+        const idxB = offerPts.indexOf(b.pt);
+        return (idxA === -1 ? 9999 : idxA) - (idxB === -1 ? 9999 : idxB);
+      });
+    }
 
     // PT 목록
     const pts = [];
@@ -647,4 +663,88 @@ export function validateSdp(sdp) {
   }
 
   return { valid: errors.length === 0, errors };
+}
+
+// ============================================================================
+// Offer PT 매핑 헬퍼 (client-offer 모드)
+// ============================================================================
+
+/**
+ * 서버 코덱 목록을 offer SDP의 실제 PT로 매핑.
+ *
+ * Chrome offer에서 코덱별 PT를 파싱하고, 서버 코덱의 name+fmtp로 매칭하여
+ * answer에 사용할 실제 PT로 교체한 사본을 반환.
+ * 매칭 실패 시 server PT 그대로 사용 (VP8은 Chrome도 PT=96).
+ *
+ * 예: server H264/PT=102 + offer a=rtpmap:119 H264 + fmtp:119 profile=42e01f
+ *   → answer에 PT=119로 H264 출력
+ *
+ * @param {Array} serverCodecs - server_config의 코덱 목록 (kind 필터링 완료)
+ * @param {string} offerSection - Chrome offer의 m= 섹션 문자열
+ * @returns {Array} offer PT로 매핑된 코덱 목록 (사본)
+ */
+function _mapCodecsToOfferPts(serverCodecs, offerSection) {
+  // offer에서 코덱 정보 추출: {pt, name, fmtp, rtxPt}
+  const offerCodecs = _parseOfferCodecs(offerSection);
+
+  return serverCodecs.map(sc => {
+    const mapped = { ...sc };
+    // offer에서 매칭: name 일치 + H264이면 profile-level-id까지 일치
+    const match = offerCodecs.find(oc => {
+      if (oc.name.toUpperCase() !== sc.name.toUpperCase()) return false;
+      if (sc.name.toUpperCase() === "H264" && sc.fmtp) {
+        // profile-level-id 매칭 (42e01f 등)
+        const serverProfile = _extractParam(sc.fmtp, "profile-level-id");
+        const offerProfile = _extractParam(oc.fmtp || "", "profile-level-id");
+        if (serverProfile && offerProfile && serverProfile.toLowerCase() !== offerProfile.toLowerCase()) {
+          return false;
+        }
+      }
+      return true;
+    });
+    if (match) {
+      mapped.pt = match.pt;
+      if (match.rtxPt != null && sc.rtx_pt != null) {
+        mapped.rtx_pt = match.rtxPt;
+      }
+    }
+    return mapped;
+  });
+}
+
+/** offer m-section에서 코덱 정보 파싱 */
+function _parseOfferCodecs(section) {
+  const codecs = [];
+  const rtpRegex = /a=rtpmap:(\d+)\s+([\w-]+)\/\d+/gm;
+  let m;
+  while ((m = rtpRegex.exec(section)) !== null) {
+    const pt = parseInt(m[1], 10);
+    const name = m[2];
+    if (name.toLowerCase() === "rtx") continue; // RTX는 별도 처리
+    codecs.push({ pt, name, fmtp: null, rtxPt: null });
+  }
+  // fmtp 파싱
+  const fmtpRegex = /a=fmtp:(\d+)\s+(.+)/gm;
+  while ((m = fmtpRegex.exec(section)) !== null) {
+    const pt = parseInt(m[1], 10);
+    const params = m[2];
+    // apt=N → RTX PT 매핑
+    const aptMatch = params.match(/apt=(\d+)/);
+    if (aptMatch) {
+      const mediaPt = parseInt(aptMatch[1], 10);
+      const codec = codecs.find(c => c.pt === mediaPt);
+      if (codec) codec.rtxPt = pt;
+    } else {
+      const codec = codecs.find(c => c.pt === pt);
+      if (codec) codec.fmtp = params;
+    }
+  }
+  return codecs;
+}
+
+/** fmtp 문자열에서 특정 파라미터 값 추출 */
+function _extractParam(fmtpStr, key) {
+  const regex = new RegExp(`(?:^|;)\\s*${key}=([^;]+)`, "i");
+  const m = fmtpStr.match(regex);
+  return m ? m[1].trim() : null;
 }
